@@ -1,0 +1,86 @@
+@FitnessPlatform_HostAddress = https://localhost:7278
+
+### Health Check
+GET {{FitnessPlatform_HostAddress}}/api/health
+Accept: application/json
+
+### Create User Profile
+POST {{FitnessPlatform_HostAddress}}/api/profiles
+Content-Type: application/json
+
+{
+  "userId": "e7f1a05c-73e0-4a81-99e6-1b75cde09820",
+  "firstName": "Test",
+  "lastName": "User",
+  "dateOfBirth": "1990-05-15",
+  "heightCm": 175,
+  "weightKg": 85,
+  "countryCode": "AE"
+}
+
+### Get User Profile
+GET https://localhost:7278/api/profiles/59c5f810-a2dc-45f2-8877-4eab31cafb77
+Accept: application/json
+
+### Update User Profile
+PUT https://localhost:7278/api/profiles/59c5f810-a2dc-45f2-8877-4eab31cafb77
+Content-Type: application/json
+
+{
+  "firstName": "Test",
+  "lastName": "User Updated",
+  "dateOfBirth": "1990-05-15",
+  "heightCm": 175,
+  "weightKg": 82,
+  "countryCode": "AE"
+}
+
+### Retrieve User Profile
+GET https://localhost:7278/api/profiles/59c5f810-a2dc-45f2-8877-4eab31cafb77
+Accept: application/json
+
+### Get All Fitness Goals
+GET https://localhost:7278/api/fitness-goals
+Accept: application/json
+
+### Assign Fitness Goals
+
+PUT https://localhost:7278/api/profiles/59c5f810-a2dc-45f2-8877-4eab31cafb77/fitness-goals
+Content-Type: application/json
+
+{
+  "fitnessGoalIds": [5, 6]
+}
+
+### Retrieve Assigned Fitness Goals
+
+GET https://localhost:7278/api/profiles/59c5f810-a2dc-45f2-8877-4eab31cafb77/fitness-goals
+Accept: application/json
+
+### Retrieve Fitness Goals - Invalid Profile
+
+GET https://localhost:7278/api/profiles/00000000-0000-0000-0000-000000000001/fitness-goals
+Accept: application/json
+
+### Save Workout Preferences
+
+PUT https://localhost:7278/api/profiles/59c5f810-a2dc-45f2-8877-4eab31cafb77/workout-preferences
+Content-Type: application/json
+
+{
+  "trainingLocation": "Gym",
+  "experienceLevel": "Intermediate",
+  "daysPerWeek": 5,
+  "sessionDurationMinutes": 60
+}
+
+### Save Dietary Preferences
+PUT https://localhost:7278/api/profiles/59c5f810-a2dc-45f2-8877-4eab31cafb77/dietary-preferences
+Content-Type: application/json
+
+{
+  "dietType": "Vegetarian",
+  "preferredCuisine": "Indian",
+  "includesEggs": true,
+  "includesMeat": false
+}

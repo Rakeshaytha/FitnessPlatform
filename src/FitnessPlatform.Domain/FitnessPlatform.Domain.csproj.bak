@@ -1,0 +1,43 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="obj\Debug\net10.0\.NETCoreApp,Version=v10.0.AssemblyAttributes.cs" />
+    <Compile Include="obj\Debug\net10.0\FitnessPlatform.Domain.AssemblyInfo.cs" />
+    <Compile Include="obj\Debug\net10.0\FitnessPlatform.Domain.GlobalUsings.g.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="bin\Debug\net10.0\FitnessPlatform.Domain.deps.json" />
+    <Content Include="obj\Debug\net10.0\FitnessPlatform.Domain.csproj.FileListAbsolute.txt" />
+    <Content Include="obj\FitnessPlatform.Domain.csproj.nuget.dgspec.json" />
+    <Content Include="obj\project.assets.json" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="bin\Debug\net10.0\FitnessPlatform.Domain.dll" />
+    <None Include="bin\Debug\net10.0\FitnessPlatform.Domain.pdb" />
+    <None Include="obj\Debug\net10.0\FitnessPlatform.Domain.AssemblyInfoInputs.cache" />
+    <None Include="obj\Debug\net10.0\FitnessPlatform.Domain.assets.cache" />
+    <None Include="obj\Debug\net10.0\FitnessPlatform.Domain.csproj.BuildWithSkipAnalyzers" />
+    <None Include="obj\Debug\net10.0\FitnessPlatform.Domain.csproj.CoreCompileInputs.cache" />
+    <None Include="obj\Debug\net10.0\FitnessPlatform.Domain.dll" />
+    <None Include="obj\Debug\net10.0\FitnessPlatform.Domain.GeneratedMSBuildEditorConfig.editorconfig" />
+    <None Include="obj\Debug\net10.0\FitnessPlatform.Domain.pdb" />
+    <None Include="obj\Debug\net10.0\refint\FitnessPlatform.Domain.dll" />
+    <None Include="obj\Debug\net10.0\ref\FitnessPlatform.Domain.dll" />
+    <None Include="obj\FitnessPlatform.Domain.csproj.nuget.g.props" />
+    <None Include="obj\FitnessPlatform.Domain.csproj.nuget.g.targets" />
+    <None Include="obj\project.nuget.cache" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Folder Include="Enums\" />
+  </ItemGroup>
+
+</Project>

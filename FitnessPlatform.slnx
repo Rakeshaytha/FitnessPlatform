@@ -1,0 +1,14 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/FitnessPlatform.Api/FitnessPlatform.Api.csproj" />
+    <Project Path="src/FitnessPlatform.Application/FitnessPlatform.Application.csproj" />
+    <Project Path="src/FitnessPlatform.Contracts/FitnessPlatform.Contracts.csproj" />
+    <Project Path="src/FitnessPlatform.Domain/FitnessPlatform.Domain.csproj" />
+    <Project Path="src/FitnessPlatform.Infrastructure/FitnessPlatform.Infrastructure.csproj" />
+    <Project Path="src/FitnessPlatform.Web/FitnessPlatform.Web.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/FitnessPlatform.IntegrationTests/FitnessPlatform.IntegrationTests.csproj" />
+    <Project Path="tests/FitnessPlatform.UnitTests/FitnessPlatform.UnitTests.csproj" />
+  </Folder>
+</Solution>

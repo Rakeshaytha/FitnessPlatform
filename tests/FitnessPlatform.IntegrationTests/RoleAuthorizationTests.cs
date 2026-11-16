@@ -1,0 +1,488 @@
+﻿using System.Net;
+using System.Net.Http.Headers;
+using System.Net.Http.Json;
+using System.Text.Json;
+using Microsoft.AspNetCore.Mvc.Testing;
+using FitnessPlatform.Infrastructure.Identity;
+using FitnessPlatform.Infrastructure.Persistence;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+
+namespace FitnessPlatform.IntegrationTests;
+
+public class RoleAuthorizationTests
+{
+    [Fact]
+    public async Task Member_CannotAccess_AdminOnlyExerciseEndpoint()
+    {
+        using var factory = new FitnessPlatformWebApplicationFactory();
+
+        await TestIdentitySeeder.SeedAsync(factory.Services);
+
+        using var client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions
+            {
+                AllowAutoRedirect = false
+            });
+
+        // Step 1: Login as Member
+        var loginResponse = await client.PostAsJsonAsync(
+            "/api/auth/login",
+            new
+            {
+                Email = TestIdentitySeeder.Member1Email,
+                Password = TestIdentitySeeder.TestPassword
+            });
+
+        Assert.Equal(HttpStatusCode.OK, loginResponse.StatusCode);
+
+        using var document = JsonDocument.Parse(
+            await loginResponse.Content.ReadAsStringAsync());
+
+        var accessToken = document.RootElement
+            .GetProperty("accessToken")
+            .GetString();
+
+        Assert.False(string.IsNullOrWhiteSpace(accessToken));
+
+        // Step 2: Attach Member JWT
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", accessToken);
+
+        // Step 3: Attempt to access Admin-only API
+        var exerciseId = Guid.NewGuid();
+
+        var response = await client.GetAsync(
+            $"/api/exercises/{exerciseId}");
+
+        // Step 4: Member must be denied
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Admin_CanAccess_AdminOnlyExerciseEndpoint()
+    {
+        using var factory = new FitnessPlatformWebApplicationFactory();
+
+        await TestIdentitySeeder.SeedAsync(factory.Services);
+
+        using var client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions
+            {
+                AllowAutoRedirect = false
+            });
+
+        // Step 1: Login as Admin
+        var loginResponse = await client.PostAsJsonAsync(
+            "/api/auth/login",
+            new
+            {
+                Email = TestIdentitySeeder.AdminEmail,
+                Password = TestIdentitySeeder.TestPassword
+            });
+
+        Assert.Equal(HttpStatusCode.OK, loginResponse.StatusCode);
+
+        using var document = JsonDocument.Parse(
+            await loginResponse.Content.ReadAsStringAsync());
+
+        var accessToken = document.RootElement
+            .GetProperty("accessToken")
+            .GetString();
+
+        Assert.False(string.IsNullOrWhiteSpace(accessToken));
+
+        // Step 2: Attach Admin JWT
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", accessToken);
+
+        // Step 3: Request a nonexistent exercise
+        var exerciseId = Guid.NewGuid();
+
+        var response = await client.GetAsync(
+            $"/api/exercises/{exerciseId}");
+
+        // Step 4: Admin should pass authorization.
+        // The exercise does not exist, so the handler returns 404.
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task UnauthenticatedUser_CannotAccess_AdminOnlyExerciseEndpoint()
+    {
+        using var factory = new FitnessPlatformWebApplicationFactory();
+
+        using var client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions
+            {
+                AllowAutoRedirect = false
+            });
+
+        // No login and no JWT token
+        var exerciseId = Guid.NewGuid();
+
+        var response = await client.GetAsync(
+            $"/api/exercises/{exerciseId}");
+
+        // Unauthenticated users must receive HTTP 401
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+    [Fact]
+    public async Task Member_CanAccess_OwnProfile()
+    {
+        using var factory = new FitnessPlatformWebApplicationFactory();
+
+        await TestIdentitySeeder.SeedAsync(factory.Services);
+
+        using var client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions
+            {
+                AllowAutoRedirect = false
+            });
+
+        // Step 1: Login as Member 1
+        var loginResponse = await client.PostAsJsonAsync(
+            "/api/auth/login",
+            new
+            {
+                Email = TestIdentitySeeder.Member1Email,
+                Password = TestIdentitySeeder.TestPassword
+            });
+
+        Assert.Equal(HttpStatusCode.OK, loginResponse.StatusCode);
+
+        using var document = JsonDocument.Parse(
+            await loginResponse.Content.ReadAsStringAsync());
+
+        var accessToken = document.RootElement
+            .GetProperty("accessToken")
+            .GetString();
+
+        Assert.False(string.IsNullOrWhiteSpace(accessToken));
+
+        // Step 2: Attach Member JWT
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", accessToken);
+
+        // Step 3: Create profile for authenticated Member 1
+        var createResponse = await client.PostAsJsonAsync(
+            "/api/profiles",
+            new
+            {
+                FirstName = "Test",
+                LastName = "MemberOne",
+                DateOfBirth = new DateOnly(1995, 1, 1),
+                HeightCm = 175,
+                WeightKg = 75,
+                CountryCode = "IN"
+            });
+
+        // If profile already exists, creation returns 409.
+        // For now, we expect a newly created profile.
+        Guid profileId;
+
+        if (createResponse.StatusCode == HttpStatusCode.Created)
+        {
+            using var profileDocument = JsonDocument.Parse(
+                await createResponse.Content.ReadAsStringAsync());
+
+            profileId = profileDocument.RootElement
+                .GetProperty("id")
+                .GetGuid();
+        }
+        else if (createResponse.StatusCode == HttpStatusCode.Conflict)
+        {
+            // Profile already exists. Retrieve its ID from the test database.
+            using var scope = factory.Services.CreateScope();
+
+            var db = scope.ServiceProvider
+                .GetRequiredService<FitnessPlatformDbContext>();
+
+            var userManager = scope.ServiceProvider
+                .GetRequiredService<UserManager<ApplicationUser>>();
+
+            var member = await userManager.FindByEmailAsync(
+                TestIdentitySeeder.Member1Email);
+
+            Assert.NotNull(member);
+
+            profileId = await db.UserProfiles
+                .Where(x => x.UserId == member.Id)
+                .Select(x => x.Id)
+                .SingleAsync();
+        }
+        else
+        {
+            var responseBody = await createResponse.Content.ReadAsStringAsync();
+
+            throw new Xunit.Sdk.XunitException(
+                $"Profile creation failed. HTTP {(int)createResponse.StatusCode}: {responseBody}");
+        }
+        
+
+        // Step 4: Retrieve own profile
+        var getResponse = await client.GetAsync(
+            $"/api/profiles/{profileId}");
+
+        // Step 5: Member must be able to access own profile
+        Assert.Equal(HttpStatusCode.OK, getResponse.StatusCode);
+    }
+
+    [Fact]
+    public async Task Member_CannotAccess_AnotherMembersProfile()
+    {
+        using var factory = new FitnessPlatformWebApplicationFactory();
+
+        await TestIdentitySeeder.SeedAsync(factory.Services);
+
+        using var client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions
+            {
+                AllowAutoRedirect = false
+            });
+
+        // Step 1: Login as Member 2
+        var member2Login = await client.PostAsJsonAsync(
+            "/api/auth/login",
+            new
+            {
+                Email = TestIdentitySeeder.Member2Email,
+                Password = TestIdentitySeeder.TestPassword
+            });
+
+        Assert.Equal(HttpStatusCode.OK, member2Login.StatusCode);
+
+        using var member2Document = JsonDocument.Parse(
+            await member2Login.Content.ReadAsStringAsync());
+
+        var member2Token = member2Document.RootElement
+            .GetProperty("accessToken")
+            .GetString();
+
+        Assert.False(string.IsNullOrWhiteSpace(member2Token));
+
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", member2Token);
+
+        // Step 2: Create Member 2's profile if it does not exist
+        var createResponse = await client.PostAsJsonAsync(
+            "/api/profiles",
+            new
+            {
+                FirstName = "Test",
+                LastName = "MemberTwo",
+                DateOfBirth = new DateOnly(1996, 2, 2),
+                HeightCm = 170,
+                WeightKg = 70,
+                CountryCode = "IN"
+            });
+
+        Guid member2ProfileId;
+
+        if (createResponse.StatusCode == HttpStatusCode.Created)
+        {
+            using var profileDocument = JsonDocument.Parse(
+                await createResponse.Content.ReadAsStringAsync());
+
+            member2ProfileId = profileDocument.RootElement
+                .GetProperty("id")
+                .GetGuid();
+        }
+        else if (createResponse.StatusCode == HttpStatusCode.Conflict)
+        {
+            using var scope = factory.Services.CreateScope();
+
+            var db = scope.ServiceProvider
+                .GetRequiredService<FitnessPlatformDbContext>();
+
+            var userManager = scope.ServiceProvider
+                .GetRequiredService<UserManager<ApplicationUser>>();
+
+            var member2 = await userManager.FindByEmailAsync(
+                TestIdentitySeeder.Member2Email);
+
+            Assert.NotNull(member2);
+
+            member2ProfileId = await db.UserProfiles
+                .Where(x => x.UserId == member2.Id)
+                .Select(x => x.Id)
+                .SingleAsync();
+        }
+        else
+        {
+            var responseBody = await createResponse.Content.ReadAsStringAsync();
+
+            throw new Xunit.Sdk.XunitException(
+                $"Member 2 profile creation failed. HTTP {(int)createResponse.StatusCode}: {responseBody}");
+        }
+
+        // Step 3: Verify Member 2 can access their own profile
+        var ownProfileResponse = await client.GetAsync(
+            $"/api/profiles/{member2ProfileId}");
+
+        Assert.Equal(HttpStatusCode.OK, ownProfileResponse.StatusCode);
+
+        // Step 4: Login as Member 1
+        var member1Login = await client.PostAsJsonAsync(
+            "/api/auth/login",
+            new
+            {
+                Email = TestIdentitySeeder.Member1Email,
+                Password = TestIdentitySeeder.TestPassword
+            });
+
+        Assert.Equal(HttpStatusCode.OK, member1Login.StatusCode);
+
+        using var member1Document = JsonDocument.Parse(
+            await member1Login.Content.ReadAsStringAsync());
+
+        var member1Token = member1Document.RootElement
+            .GetProperty("accessToken")
+            .GetString();
+
+        Assert.False(string.IsNullOrWhiteSpace(member1Token));
+
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", member1Token);
+
+        // Step 5: Member 1 attempts to access Member 2's profile
+        var unauthorizedResponse = await client.GetAsync(
+            $"/api/profiles/{member2ProfileId}");
+
+        // Member 1 must be denied access
+        Assert.Equal(HttpStatusCode.Forbidden, unauthorizedResponse.StatusCode);
+    }
+
+    [Fact]
+    public async Task Admin_CanAccess_MemberProfile()
+    {
+        using var factory = new FitnessPlatformWebApplicationFactory();
+
+        await TestIdentitySeeder.SeedAsync(factory.Services);
+
+        using var client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions
+            {
+                AllowAutoRedirect = false
+            });
+
+        // Step 1: Retrieve Member 2's existing profile ID
+        Guid member2ProfileId;
+
+        using (var scope = factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider
+                .GetRequiredService<FitnessPlatformDbContext>();
+
+            var userManager = scope.ServiceProvider
+                .GetRequiredService<UserManager<ApplicationUser>>();
+
+            var member2 = await userManager.FindByEmailAsync(
+                TestIdentitySeeder.Member2Email);
+
+            Assert.NotNull(member2);
+
+            var existingProfile = await db.UserProfiles
+       .Where(x => x.UserId == member2.Id)
+       .Select(x => (Guid?)x.Id)
+       .SingleOrDefaultAsync();
+
+            if (existingProfile.HasValue)
+            {
+                member2ProfileId = existingProfile.Value;
+            }
+            else
+            {
+                var member2Login = await client.PostAsJsonAsync(
+                    "/api/auth/login",
+                    new
+                    {
+                        Email = TestIdentitySeeder.Member2Email,
+                        Password = TestIdentitySeeder.TestPassword
+                    });
+
+                Assert.Equal(HttpStatusCode.OK, member2Login.StatusCode);
+
+                using var member2Document = JsonDocument.Parse(
+                    await member2Login.Content.ReadAsStringAsync());
+
+                var member2Token = member2Document.RootElement
+                    .GetProperty("accessToken")
+                    .GetString();
+
+                Assert.False(string.IsNullOrWhiteSpace(member2Token));
+
+                client.DefaultRequestHeaders.Authorization =
+                    new AuthenticationHeaderValue("Bearer", member2Token);
+
+                var createResponse = await client.PostAsJsonAsync(
+                    "/api/profiles",
+                    new
+                    {
+                        FirstName = "Test",
+                        LastName = "MemberTwo",
+                        DateOfBirth = new DateOnly(1996, 2, 2),
+                        HeightCm = 170,
+                        WeightKg = 70,
+                        CountryCode = "IN"
+                    });
+
+                if (createResponse.StatusCode == HttpStatusCode.Created)
+                {
+                    using var profileDocument = JsonDocument.Parse(
+                        await createResponse.Content.ReadAsStringAsync());
+
+                    member2ProfileId = profileDocument.RootElement
+                        .GetProperty("id")
+                        .GetGuid();
+                }
+                else if (createResponse.StatusCode == HttpStatusCode.Conflict)
+                {
+                    member2ProfileId = await db.UserProfiles
+                        .Where(x => x.UserId == member2.Id)
+                        .Select(x => x.Id)
+                        .SingleAsync();
+                }
+                else
+                {
+                    var responseBody = await createResponse.Content.ReadAsStringAsync();
+
+                    throw new Xunit.Sdk.XunitException(
+                        $"Member 2 profile creation failed. HTTP {(int)createResponse.StatusCode}: {responseBody}");
+                }
+            }
+        }
+
+        // Step 2: Login as Admin
+        var loginResponse = await client.PostAsJsonAsync(
+            "/api/auth/login",
+            new
+            {
+                Email = TestIdentitySeeder.AdminEmail,
+                Password = TestIdentitySeeder.TestPassword
+            });
+
+        Assert.Equal(HttpStatusCode.OK, loginResponse.StatusCode);
+
+        using var document = JsonDocument.Parse(
+            await loginResponse.Content.ReadAsStringAsync());
+
+        var accessToken = document.RootElement
+            .GetProperty("accessToken")
+            .GetString();
+
+        Assert.False(string.IsNullOrWhiteSpace(accessToken));
+
+        // Step 3: Attach Admin JWT
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", accessToken);
+
+        // Step 4: Admin requests Member 2's profile
+        var response = await client.GetAsync(
+            $"/api/profiles/{member2ProfileId}");
+
+        // Step 5: Admin must be allowed access
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+}

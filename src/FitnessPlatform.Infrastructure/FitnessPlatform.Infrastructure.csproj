@@ -1,0 +1,67 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="bin\Debug\net10.0\FitnessPlatform.Infrastructure.deps.json" />
+    <Content Include="bin\Debug\net10.0\FitnessPlatform.Infrastructure.runtimeconfig.json" />
+    <Content Include="obj\Debug\net10.0\FitnessPlatform.Infrastructure.csproj.FileListAbsolute.txt" />
+    <Content Include="obj\FitnessPlatform.Infrastructure.csproj.nuget.dgspec.json" />
+    <Content Include="obj\project.assets.json" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="bin\Debug\net10.0\FitnessPlatform.Application.dll" />
+    <None Include="bin\Debug\net10.0\FitnessPlatform.Application.pdb" />
+    <None Include="bin\Debug\net10.0\FitnessPlatform.Contracts.dll" />
+    <None Include="bin\Debug\net10.0\FitnessPlatform.Contracts.pdb" />
+    <None Include="bin\Debug\net10.0\FitnessPlatform.Domain.dll" />
+    <None Include="bin\Debug\net10.0\FitnessPlatform.Domain.pdb" />
+    <None Include="bin\Debug\net10.0\FitnessPlatform.Infrastructure.dll" />
+    <None Include="bin\Debug\net10.0\FitnessPlatform.Infrastructure.pdb" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\FitnessPlatform.Application\FitnessPlatform.Application.csproj" />
+    <ProjectReference Include="..\FitnessPlatform.Domain\FitnessPlatform.Domain.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="10.0.15" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.*">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="10.0.*" />
+    <PackageReference Include="System.Security.Cryptography.Pkcs" Version="10.0.*" />
+  </ItemGroup>
+  <ItemGroup>
+    <Folder Include="bin\Debug\net10.0\BuildHost-net472\cs\" />
+    <Folder Include="bin\Debug\net10.0\BuildHost-net472\de\" />
+    <Folder Include="bin\Debug\net10.0\BuildHost-net472\es\" />
+    <Folder Include="bin\Debug\net10.0\BuildHost-net472\fr\" />
+    <Folder Include="bin\Debug\net10.0\BuildHost-net472\it\" />
+    <Folder Include="bin\Debug\net10.0\BuildHost-net472\ja\" />
+    <Folder Include="bin\Debug\net10.0\BuildHost-net472\ko\" />
+    <Folder Include="bin\Debug\net10.0\BuildHost-net472\pl\" />
+    <Folder Include="bin\Debug\net10.0\BuildHost-net472\pt-BR\" />
+    <Folder Include="bin\Debug\net10.0\BuildHost-net472\ru\" />
+    <Folder Include="bin\Debug\net10.0\BuildHost-net472\tr\" />
+    <Folder Include="bin\Debug\net10.0\BuildHost-net472\zh-Hans\" />
+    <Folder Include="bin\Debug\net10.0\BuildHost-net472\zh-Hant\" />
+    <Folder Include="bin\Debug\net10.0\BuildHost-netcore\cs\" />
+    <Folder Include="bin\Debug\net10.0\BuildHost-netcore\de\" />
+    <Folder Include="bin\Debug\net10.0\BuildHost-netcore\es\" />
+    <Folder Include="bin\Debug\net10.0\BuildHost-netcore\fr\" />
+    <Folder Include="bin\Debug\net10.0\BuildHost-netcore\it\" />
+    <Folder Include="bin\Debug\net10.0\BuildHost-netcore\ja\" />
+    <Folder Include="bin\Debug\net10.0\BuildHost-netcore\ko\" />
+    <Folder Include="bin\Debug\net10.0\BuildHost-netcore\pl\" />
+    <Folder Include="bin\Debug\net10.0\BuildHost-netcore\pt-BR\" />
+    <Folder Include="bin\Debug\net10.0\BuildHost-netcore\ru\" />
+    <Folder Include="bin\Debug\net10.0\BuildHost-netcore\tr\" />
+    <Folder Include="bin\Debug\net10.0\BuildHost-netcore\zh-Hans\" />
+    <Folder Include="bin\Debug\net10.0\BuildHost-netcore\zh-Hant\" />
+  </ItemGroup>
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+</Project>

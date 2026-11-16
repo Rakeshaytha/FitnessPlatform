@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="bin\Debug\net10.0\FitnessPlatform.Domain.deps.json" />
+    <Content Include="obj\Debug\net10.0\FitnessPlatform.Domain.csproj.FileListAbsolute.txt" />
+    <Content Include="obj\FitnessPlatform.Domain.csproj.nuget.dgspec.json" />
+    <Content Include="obj\project.assets.json" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="bin\Debug\net10.0\FitnessPlatform.Domain.dll" />
+    <None Include="bin\Debug\net10.0\FitnessPlatform.Domain.pdb" />
+  </ItemGroup>
+  <ItemGroup>
+    <Folder Include="Enums\" />
+  </ItemGroup>
+</Project>
