@@ -215,6 +215,7 @@ app.MapDietaryPreferenceEndpoints();
 app.MapOnboardingEndpoints();
 app.MapExerciseEndpoints();
 app.MapAuthEndpoints();
+app.MapExerciseLibraryEndpoints();
 
 app.Run();
 public partial class Program

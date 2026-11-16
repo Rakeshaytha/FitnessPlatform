@@ -130,6 +130,103 @@ public static class ExerciseEndpoints
         })
         .WithName("CreateExercise");
 
+        // UPDATE EXERCISE - ADMIN ONLY, DRAFT STATUS
+
+        group.MapPut("/{id:guid}", async (
+            Guid id,
+            SaveExerciseRequest request,
+            FitnessPlatformDbContext db,
+            CancellationToken cancellationToken) =>
+        {
+            // STEP 1: Find existing exercise
+            var exercise = await db.Exercises
+                .FirstOrDefaultAsync(
+                    x => x.Id == id,
+                    cancellationToken);
+
+            if (exercise is null)
+            {
+                return Results.NotFound(new
+                {
+                    Error = "Exercise not found."
+                });
+            }
+
+            // STEP 2: Only Draft exercises can be updated
+            if (exercise.ReviewStatus != "Draft")
+            {
+                return Results.Conflict(new
+                {
+                    Error = "Only Draft exercises can be updated."
+                });
+            }
+
+            // STEP 3: Validate request
+            var validationError = ExerciseValidator.Validate(request);
+
+            if (validationError is not null)
+            {
+                return Results.BadRequest(new
+                {
+                    Error = validationError
+                });
+            }
+
+            // STEP 4: Normalize exercise code
+            var code = ExerciseValidator.NormalizeCode(request.Code);
+
+            // STEP 5: Check duplicate code excluding current exercise
+            var codeExists = await db.Exercises
+                .AnyAsync(
+                    x => x.Code == code && x.Id != id,
+                    cancellationToken);
+
+            if (codeExists)
+            {
+                return Results.Conflict(new
+                {
+                    Error = "Exercise code already exists."
+                });
+            }
+
+            // STEP 6: Update exercise details
+            exercise.Code = code;
+            exercise.Name = request.Name.Trim();
+            exercise.Description = request.Description.Trim();
+            exercise.MuscleGroup = request.MuscleGroup.Trim();
+            exercise.Equipment = request.Equipment.Trim();
+            exercise.DifficultyLevel = request.DifficultyLevel.Trim();
+            exercise.TrainingLocation = request.TrainingLocation.Trim();
+            exercise.Instructions = request.Instructions.Trim();
+            exercise.VideoUrl = request.VideoUrl;
+            exercise.GifUrl = request.GifUrl;
+
+            // Preserve ID, CreatedAtUtc, IsActive and ReviewStatus
+            exercise.UpdatedAtUtc = DateTime.UtcNow;
+
+            // STEP 7: Save changes
+            await db.SaveChangesAsync(cancellationToken);
+
+            // STEP 8: Return updated exercise
+            return Results.Ok(new ExerciseResponse
+            {
+                Id = exercise.Id,
+                Code = exercise.Code,
+                Name = exercise.Name,
+                Description = exercise.Description,
+                MuscleGroup = exercise.MuscleGroup,
+                Equipment = exercise.Equipment,
+                DifficultyLevel = exercise.DifficultyLevel,
+                TrainingLocation = exercise.TrainingLocation,
+                Instructions = exercise.Instructions,
+                VideoUrl = exercise.VideoUrl,
+                GifUrl = exercise.GifUrl,
+                IsActive = exercise.IsActive,
+                ReviewStatus = exercise.ReviewStatus
+            });
+        })
+        .WithName("UpdateExercise");
+
         // GET EXERCISES WITH FILTERING AND PAGINATION
         group.MapGet("/", async (
             string? muscleGroup,
@@ -615,4 +712,6 @@ public static class ExerciseEndpoints
         .WithName("GetExerciseAuditHistory");
         return app;
     }
+
+
 }
