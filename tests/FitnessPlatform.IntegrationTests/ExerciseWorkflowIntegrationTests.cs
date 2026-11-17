@@ -5115,4 +5115,216 @@ public class ExerciseWorkflowIntegrationTests
             4,
             unpaginatedDocument.RootElement.GetArrayLength());
     }
+
+    [Fact]
+    public async Task Member_CanViewOnlyApprovedActiveExerciseDetails()
+    {
+        using var factory = new FitnessPlatformWebApplicationFactory();
+
+        await TestIdentitySeeder.SeedAsync(factory.Services);
+
+        using var client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions
+            {
+                AllowAutoRedirect = false
+            });
+
+        // STEP 1: Authenticate as Admin
+        var adminLoginResponse = await client.PostAsJsonAsync(
+            "/api/auth/login",
+            new
+            {
+                Email = TestIdentitySeeder.AdminEmail,
+                Password = TestIdentitySeeder.TestPassword
+            });
+
+        Assert.Equal(HttpStatusCode.OK, adminLoginResponse.StatusCode);
+
+        using var adminLoginDocument = JsonDocument.Parse(
+            await adminLoginResponse.Content.ReadAsStringAsync());
+
+        var adminToken = adminLoginDocument.RootElement
+            .GetProperty("accessToken")
+            .GetString();
+
+        Assert.False(string.IsNullOrWhiteSpace(adminToken));
+
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", adminToken);
+
+        var uniqueText = Guid.NewGuid().ToString("N").ToUpperInvariant();
+
+        // STEP 2: Helper to create exercises
+        async Task<Guid> CreateExerciseAsync(
+            string prefix,
+            string name,
+            string finalStatus)
+        {
+            var request = new SaveExerciseRequest
+            {
+                Code = $"{prefix}-{uniqueText}",
+                Name = $"{name} {uniqueText}",
+                Description = "Exercise detail integration test",
+                MuscleGroup = "Chest",
+                Equipment = "Dumbbell",
+                DifficultyLevel = "Beginner",
+                TrainingLocation = "Gym",
+                Instructions = "Perform 3 sets of 12 repetitions."
+            };
+
+            var createResponse = await client.PostAsJsonAsync(
+                "/api/exercises",
+                request);
+
+            Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+
+            using var createDocument = JsonDocument.Parse(
+                await createResponse.Content.ReadAsStringAsync());
+
+            var exerciseId = createDocument.RootElement
+                .GetProperty("id")
+                .GetGuid();
+
+            if (finalStatus != "Draft")
+            {
+                var submitResponse = await client.PostAsync(
+                    $"/api/exercises/{exerciseId}/submit-review",
+                    null);
+
+                Assert.Equal(HttpStatusCode.OK, submitResponse.StatusCode);
+            }
+
+            if (finalStatus == "Approved" || finalStatus == "Retired")
+            {
+                var approveResponse = await client.PutAsync(
+                    $"/api/exercises/{exerciseId}/approve",
+                    null);
+
+                Assert.Equal(HttpStatusCode.OK, approveResponse.StatusCode);
+            }
+
+            if (finalStatus == "Retired")
+            {
+                var retireResponse = await client.PutAsync(
+                    $"/api/exercises/{exerciseId}/retire",
+                    null);
+
+                Assert.Equal(HttpStatusCode.OK, retireResponse.StatusCode);
+            }
+
+            return exerciseId;
+        }
+
+        // STEP 3: Create exercises in different workflow states
+        var approvedId = await CreateExerciseAsync(
+            "DETAIL-APPROVED", "Approved Chest Press", "Approved");
+
+        var draftId = await CreateExerciseAsync(
+            "DETAIL-DRAFT", "Draft Chest Press", "Draft");
+
+        var inReviewId = await CreateExerciseAsync(
+            "DETAIL-REVIEW", "Review Chest Press", "In Review");
+
+        var retiredId = await CreateExerciseAsync(
+            "DETAIL-RETIRED", "Retired Chest Press", "Retired");
+
+        // STEP 4: Verify unauthenticated access is rejected
+        client.DefaultRequestHeaders.Authorization = null;
+
+        var unauthorizedResponse = await client.GetAsync(
+            $"/api/exercise-library/{approvedId}");
+
+        Assert.Equal(
+            HttpStatusCode.Unauthorized,
+            unauthorizedResponse.StatusCode);
+
+        // STEP 5: Authenticate as Member
+        var memberLoginResponse = await client.PostAsJsonAsync(
+            "/api/auth/login",
+            new
+            {
+                Email = TestIdentitySeeder.Member1Email,
+                Password = TestIdentitySeeder.TestPassword
+            });
+
+        Assert.Equal(HttpStatusCode.OK, memberLoginResponse.StatusCode);
+
+        using var memberLoginDocument = JsonDocument.Parse(
+            await memberLoginResponse.Content.ReadAsStringAsync());
+
+        var memberToken = memberLoginDocument.RootElement
+            .GetProperty("accessToken")
+            .GetString();
+
+        Assert.False(string.IsNullOrWhiteSpace(memberToken));
+
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", memberToken);
+
+        // STEP 6: Approved exercise must be accessible
+        var approvedResponse = await client.GetAsync(
+            $"/api/exercise-library/{approvedId}");
+
+        Assert.Equal(HttpStatusCode.OK, approvedResponse.StatusCode);
+
+        using var approvedDocument = JsonDocument.Parse(
+            await approvedResponse.Content.ReadAsStringAsync());
+
+        var exercise = approvedDocument.RootElement;
+
+        Assert.Equal(
+            approvedId,
+            exercise.GetProperty("id").GetGuid());
+
+        Assert.Equal(
+            "Approved",
+            exercise.GetProperty("reviewStatus").GetString());
+
+        Assert.True(
+            exercise.GetProperty("isActive").GetBoolean());
+
+        Assert.Equal(
+            "Chest",
+            exercise.GetProperty("muscleGroup").GetString());
+
+        Assert.Equal(
+            "Dumbbell",
+            exercise.GetProperty("equipment").GetString());
+
+        Assert.Equal(
+            "Perform 3 sets of 12 repetitions.",
+            exercise.GetProperty("instructions").GetString());
+
+        // STEP 7: Draft exercise must be hidden
+        var draftResponse = await client.GetAsync(
+            $"/api/exercise-library/{draftId}");
+
+        Assert.Equal(
+            HttpStatusCode.NotFound,
+            draftResponse.StatusCode);
+
+        // STEP 8: In Review exercise must be hidden
+        var inReviewResponse = await client.GetAsync(
+            $"/api/exercise-library/{inReviewId}");
+
+        Assert.Equal(
+            HttpStatusCode.NotFound,
+            inReviewResponse.StatusCode);
+
+        // STEP 9: Retired exercise must be hidden
+        var retiredResponse = await client.GetAsync(
+            $"/api/exercise-library/{retiredId}");
+
+        Assert.Equal(
+            HttpStatusCode.NotFound,
+            retiredResponse.StatusCode);
+
+        // STEP 10: Nonexistent exercise must return 404
+        var missingResponse = await client.GetAsync(
+            $"/api/exercise-library/{Guid.NewGuid()}");
+
+        Assert.Equal(
+            HttpStatusCode.NotFound,
+            missingResponse.StatusCode);
+    }
 }

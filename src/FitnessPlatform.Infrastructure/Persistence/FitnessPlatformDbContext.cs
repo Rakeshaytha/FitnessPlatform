@@ -24,11 +24,19 @@ public class FitnessPlatformDbContext : IdentityDbContext<ApplicationUser, Ident
     public DbSet<WorkoutPreference> WorkoutPreferences { get; set; }
 
     public DbSet<DietaryPreference> DietaryPreferences { get; set; }
+
     public DbSet<UserProfileFitnessGoal> UserProfileFitnessGoals { get; set; }
 
     public DbSet<Exercise> Exercises { get; set; }
 
+    public DbSet<WorkoutPlan> WorkoutPlans => Set<WorkoutPlan>();
+
+    public DbSet<WorkoutPlanDay> WorkoutPlanDays => Set<WorkoutPlanDay>();
+
+    public DbSet<WorkoutPlanExercise> WorkoutPlanExercises => Set<WorkoutPlanExercise>();
+
     public DbSet<ExerciseReviewAudit> ExerciseReviewAudits => Set<ExerciseReviewAudit>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
@@ -221,5 +229,109 @@ public class FitnessPlatformDbContext : IdentityDbContext<ApplicationUser, Ident
 
             entity.HasIndex(x => x.PerformedAtUtc);
         });
+
+
+        modelBuilder.Entity<WorkoutPlan>(entity =>
+        {
+            entity.ToTable("WorkoutPlans");
+
+            entity.HasKey(x => x.Id);
+
+            entity.Property(x => x.Name)
+                .HasMaxLength(200)
+                .IsRequired();
+
+            entity.Property(x => x.Description)
+                .HasMaxLength(2000);
+
+            entity.Property(x => x.GoalCode)
+                .HasMaxLength(50)
+                .IsRequired();
+
+            entity.Property(x => x.ExperienceLevel)
+                .HasMaxLength(50)
+                .IsRequired();
+
+            entity.Property(x => x.TrainingLocation)
+                .HasMaxLength(50)
+                .IsRequired();
+
+            entity.Property(x => x.ReviewStatus)
+                .HasMaxLength(30)
+                .IsRequired()
+                .HasDefaultValue("Draft");
+
+            entity.Property(x => x.IsActive)
+                .HasDefaultValue(true);
+
+            entity.Property(x => x.CreatedAtUtc)
+                .IsRequired();
+
+            entity.Property(x => x.UpdatedAtUtc)
+                .IsRequired();
+
+            entity.HasIndex(x => new
+            {
+                x.GoalCode,
+                x.ExperienceLevel,
+                x.TrainingLocation
+            });
+        });
+
+        modelBuilder.Entity<WorkoutPlanDay>(entity =>
+        {
+            entity.ToTable("WorkoutPlanDays");
+
+            entity.HasKey(x => x.Id);
+
+            entity.Property(x => x.Name)
+                .HasMaxLength(150)
+                .IsRequired();
+
+            entity.Property(x => x.Description)
+                .HasMaxLength(1000);
+
+            entity.HasOne(x => x.WorkoutPlan)
+                .WithMany()
+                .HasForeignKey(x => x.WorkoutPlanId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(x => new
+            {
+                x.WorkoutPlanId,
+                x.DayNumber
+            }).IsUnique();
+        });
+
+        modelBuilder.Entity<WorkoutPlanExercise>(entity =>
+        {
+            entity.ToTable("WorkoutPlanExercises");
+
+            entity.HasKey(x => x.Id);
+
+            entity.Property(x => x.Notes)
+                .HasMaxLength(1000);
+
+            entity.HasOne(x => x.WorkoutPlanDay)
+                .WithMany(x => x.Exercises)
+                .HasForeignKey(x => x.WorkoutPlanDayId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(x => x.Exercise)
+                .WithMany()
+                .HasForeignKey(x => x.ExerciseId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasIndex(x => new
+            {
+                x.WorkoutPlanDayId,
+                x.ExerciseOrder
+            }).IsUnique();
+
+            entity.HasIndex(x => x.ExerciseId);
+        });
+
     }
+
+
 }

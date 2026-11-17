@@ -145,6 +145,46 @@ public static class ExerciseLibraryEndpoints
         })
         .WithName("GetExerciseLibrary");
 
+        // STEP 11: Get individual exercise details for authenticated Members
+        group.MapGet("/{id:guid}", async (
+            Guid id,
+            FitnessPlatformDbContext db,
+            CancellationToken cancellationToken) =>
+        {
+            // Retrieve only Approved and Active exercises
+            var exercise = await db.Exercises
+                .AsNoTracking()
+                .Where(x =>
+                    x.Id == id &&
+                    x.ReviewStatus == "Approved" &&
+                    x.IsActive)
+                .Select(x => new ExerciseResponse
+                {
+                    Id = x.Id,
+                    Code = x.Code,
+                    Name = x.Name,
+                    Description = x.Description,
+                    MuscleGroup = x.MuscleGroup,
+                    Equipment = x.Equipment,
+                    DifficultyLevel = x.DifficultyLevel,
+                    TrainingLocation = x.TrainingLocation,
+                    Instructions = x.Instructions,
+                    VideoUrl = x.VideoUrl,
+                    GifUrl = x.GifUrl,
+                    IsActive = x.IsActive,
+                    ReviewStatus = x.ReviewStatus
+                })
+                .FirstOrDefaultAsync(cancellationToken);
+
+            if (exercise is null)
+            {
+                return Results.NotFound();
+            }
+
+            return Results.Ok(exercise);
+        })
+        .WithName("GetExerciseLibraryById");
+
         return app;
     }
 }

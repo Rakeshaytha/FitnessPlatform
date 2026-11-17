@@ -216,6 +216,8 @@ app.MapOnboardingEndpoints();
 app.MapExerciseEndpoints();
 app.MapAuthEndpoints();
 app.MapExerciseLibraryEndpoints();
+app.MapWorkoutPlanEndpoints();
+
 
 app.Run();
 public partial class Program
