@@ -510,6 +510,122 @@ public static class WorkoutPlanEndpoints
         })
         .WithName("SubmitWorkoutPlanForReview");
 
+        // APPROVE WORKOUT PLAN
+        group.MapPost("/{planId:guid}/approve", async (
+            Guid planId,
+            FitnessPlatformDbContext db,
+            CancellationToken cancellationToken) =>
+        {
+            // Step 1: Find workout plan
+            var plan = await db.WorkoutPlans
+                .FindAsync(new object[] { planId }, cancellationToken);
+
+            if (plan is null)
+            {
+                return Results.NotFound(new
+                {
+                    Error = "Workout plan not found."
+                });
+            }
+
+            // Step 2: Validate review status
+            if (plan.ReviewStatus != "In Review")
+            {
+                return Results.Conflict(new
+                {
+                    Error = "Only workout plans under review can be approved."
+                });
+            }
+
+            // Step 3: Validate active status
+            if (!WorkoutPlanReviewWorkflowValidator.CanApprove(
+                    plan.ReviewStatus,
+                    plan.IsActive))
+            {
+                return Results.BadRequest(new
+                {
+                    Error = "Inactive workout plans cannot be approved."
+                });
+            }
+
+            // Step 4: Approve workout plan
+            plan.ReviewStatus = "Approved";
+            plan.UpdatedAtUtc = DateTime.UtcNow;
+
+            await db.SaveChangesAsync(cancellationToken);
+
+            // Step 5: Return response
+            return Results.Ok(new
+            {
+                plan.Id,
+                plan.Name,
+                plan.ReviewStatus,
+                plan.IsActive,
+                plan.UpdatedAtUtc,
+                Message = "Workout plan approved successfully."
+            });
+        })
+        .WithName("ApproveWorkoutPlan");
+
+        // REJECT WORKOUT PLAN
+        group.MapPost("/{planId:guid}/reject", async (
+            Guid planId,
+            RejectWorkoutPlanRequest request,
+            FitnessPlatformDbContext db,
+            CancellationToken cancellationToken) =>
+        {
+            var plan = await db.WorkoutPlans
+                .FindAsync(new object[] { planId }, cancellationToken);
+
+            if (plan is null)
+            {
+                return Results.NotFound(new
+                {
+                    Error = "Workout plan not found."
+                });
+            }
+
+            if (!WorkoutPlanReviewWorkflowValidator.CanReject(
+                    plan.ReviewStatus))
+            {
+                return Results.Conflict(new
+                {
+                    Error = "Only workout plans under review can be rejected."
+                });
+            }
+
+            if (string.IsNullOrWhiteSpace(request.Reason))
+            {
+                return Results.BadRequest(new
+                {
+                    Error = "A rejection reason is required."
+                });
+            }
+
+            if (request.Reason.Trim().Length > 1000)
+            {
+                return Results.BadRequest(new
+                {
+                    Error = "Rejection reason cannot exceed 1000 characters."
+                });
+            }
+
+            plan.ReviewStatus = "Rejected";
+            plan.UpdatedAtUtc = DateTime.UtcNow;
+
+            await db.SaveChangesAsync(cancellationToken);
+
+            return Results.Ok(new
+            {
+                plan.Id,
+                plan.Name,
+                plan.ReviewStatus,
+                RejectionReason = request.Reason.Trim(),
+                plan.UpdatedAtUtc,
+                Message = "Workout plan rejected successfully."
+            });
+        })
+        .WithName("RejectWorkoutPlan");
 
         return app;
     }

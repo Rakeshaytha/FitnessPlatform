@@ -261,6 +261,10 @@ public class FitnessPlatformDbContext : IdentityDbContext<ApplicationUser, Ident
                 .IsRequired()
                 .HasDefaultValue("Draft");
 
+            entity.Property(x => x.RejectionReason)
+                .HasMaxLength(1000)
+                .IsRequired(false);
+
             entity.Property(x => x.IsActive)
                 .HasDefaultValue(true);
 
