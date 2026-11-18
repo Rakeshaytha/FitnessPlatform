@@ -1,7 +1,9 @@
+using Microsoft.EntityFrameworkCore;
 
 using FitnessPlatform.Contracts.WorkoutPlans;
 using FitnessPlatform.Domain.Entities;
 using FitnessPlatform.Infrastructure.Persistence;
+using FitnessPlatform.Application.WorkoutPlans;
 
 namespace FitnessPlatform.Api.Endpoints;
 
@@ -326,7 +328,190 @@ public static class WorkoutPlanEndpoints
         })
         .WithName("AddWorkoutPlanExercise");
 
+        // GET WORKOUT PLAN DETAILS WITH DAYS AND EXERCISES
+        group.MapGet("/{planId:guid}", async (
+            Guid planId,
+            FitnessPlatformDbContext db,
+            CancellationToken cancellationToken) =>
+        {
+            var plan = await db.WorkoutPlans
+                .AsNoTracking()
+                .Where(p => p.Id == planId)
+                .Select(p => new WorkoutPlanDetailResponse
+                {
+                    Id = p.Id,
+                    Name = p.Name,
+                    Description = p.Description,
+                    GoalCode = p.GoalCode,
+                    ExperienceLevel = p.ExperienceLevel,
+                    TrainingLocation = p.TrainingLocation,
+                    DaysPerWeek = p.DaysPerWeek,
+                    DurationWeeks = p.DurationWeeks,
+                    IsActive = p.IsActive,
+                    ReviewStatus = p.ReviewStatus,
+                    CreatedAtUtc = p.CreatedAtUtc,
+                    UpdatedAtUtc = p.UpdatedAtUtc,
+
+                    Days = db.WorkoutPlanDays
+                        .Where(d => d.WorkoutPlanId == p.Id)
+                        .OrderBy(d => d.DayNumber)
+                        .Select(d => new WorkoutPlanDayDetailResponse
+                        {
+                            Id = d.Id,
+                            WorkoutPlanId = d.WorkoutPlanId,
+                            DayNumber = d.DayNumber,
+                            Name = d.Name,
+                            Description = d.Description,
+                            IsRestDay = d.IsRestDay,
+                            EstimatedDurationMinutes = d.EstimatedDurationMinutes,
+
+                            Exercises = db.WorkoutPlanExercises
+                                .Where(e => e.WorkoutPlanDayId == d.Id)
+                                .OrderBy(e => e.ExerciseOrder)
+                                .Select(e => new WorkoutPlanExerciseDetailResponse
+                                {
+                                    Id = e.Id,
+                                    WorkoutPlanDayId = e.WorkoutPlanDayId,
+                                    ExerciseId = e.ExerciseId,
+                                    ExerciseOrder = e.ExerciseOrder,
+                                    Sets = e.Sets,
+                                    Reps = e.Reps,
+                                    RestSeconds = e.RestSeconds,
+                                    DurationSeconds = e.DurationSeconds,
+                                    Notes = e.Notes,
+
+                                    ExerciseCode = db.Exercises
+                                        .Where(x => x.Id == e.ExerciseId)
+                                        .Select(x => x.Code)
+                                        .FirstOrDefault() ?? string.Empty,
+
+                                    ExerciseName = db.Exercises
+                                        .Where(x => x.Id == e.ExerciseId)
+                                        .Select(x => x.Name)
+                                        .FirstOrDefault() ?? string.Empty
+                                })
+                                .ToList()
+                        })
+                        .ToList()
+                })
+                .FirstOrDefaultAsync(cancellationToken);
+
+            if (plan is null)
+            {
+                return Results.NotFound(new
+                {
+                    Error = "Workout plan not found."
+                });
+            }
+
+            return Results.Ok(plan);
+        })
+        .WithName("GetWorkoutPlanDetails");
+
+
+
+        // SUBMIT WORKOUT PLAN FOR REVIEW
+        group.MapPost("/{planId:guid}/submit-for-review", async (
+            Guid planId,
+            FitnessPlatformDbContext db,
+            CancellationToken cancellationToken) =>
+        {
+            // Step 1: Find workout plan
+            var plan = await db.WorkoutPlans
+                .FindAsync(new object[] { planId }, cancellationToken);
+
+            if (plan is null)
+            {
+                return Results.NotFound(new
+                {
+                    Error = "Workout plan not found."
+                });
+            }
+
+            // Step 2: Validate review status
+            if (plan.ReviewStatus != "Draft")
+            {
+                return Results.Conflict(new
+                {
+                    Error = "Only Draft workout plans can be submitted for review."
+                });
+            }
+
+            // Step 3: Validate active status
+            if (!WorkoutPlanReviewWorkflowValidator.CanSubmitForReview(
+                    plan.ReviewStatus,
+                    plan.IsActive))
+            {
+                return Results.BadRequest(new
+                {
+                    Error = "Inactive workout plans cannot be submitted for review."
+                });
+            }
+
+            // Step 4: Retrieve workout days
+            var days = await db.WorkoutPlanDays
+                .AsNoTracking()
+                .Where(d => d.WorkoutPlanId == planId)
+                .ToListAsync(cancellationToken);
+
+            if (days.Count == 0)
+            {
+                return Results.BadRequest(new
+                {
+                    Error = "Workout plan must contain at least one workout day."
+                });
+            }
+
+            // Step 5: Validate every non-rest day
+            var workoutDayIds = days
+                .Where(d => !d.IsRestDay)
+                .Select(d => d.Id)
+                .ToList();
+
+            if (workoutDayIds.Count == 0)
+            {
+                return Results.BadRequest(new
+                {
+                    Error = "Workout plan must contain at least one training day."
+                });
+            }
+
+            var daysWithExercises = await db.WorkoutPlanExercises
+                .AsNoTracking()
+                .Where(e => workoutDayIds.Contains(e.WorkoutPlanDayId))
+                .Select(e => e.WorkoutPlanDayId)
+                .Distinct()
+                .ToListAsync(cancellationToken);
+
+            if (workoutDayIds.Except(daysWithExercises).Any())
+            {
+                return Results.BadRequest(new
+                {
+                    Error = "Every non-rest workout day must contain at least one exercise."
+                });
+            }
+
+            // Step 6: Update review status
+            plan.ReviewStatus = "In Review";
+            plan.UpdatedAtUtc = DateTime.UtcNow;
+
+            await db.SaveChangesAsync(cancellationToken);
+
+            // Step 7: Return response
+            return Results.Ok(new
+            {
+                plan.Id,
+                plan.Name,
+                plan.ReviewStatus,
+                plan.IsActive,
+                plan.UpdatedAtUtc,
+                Message = "Workout plan submitted for review successfully."
+            });
+        })
+        .WithName("SubmitWorkoutPlanForReview");
+
 
         return app;
     }
 }
+
