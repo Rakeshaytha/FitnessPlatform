@@ -101,6 +101,7 @@ public static class WorkoutPlanEndpoints
                     DurationWeeks = plan.DurationWeeks,
                     IsActive = plan.IsActive,
                     ReviewStatus = plan.ReviewStatus,
+                    RejectionReason = plan.RejectionReason,
                     CreatedAtUtc = plan.CreatedAtUtc,
                     UpdatedAtUtc = plan.UpdatedAtUtc
                 });
@@ -349,6 +350,7 @@ public static class WorkoutPlanEndpoints
                     DurationWeeks = p.DurationWeeks,
                     IsActive = p.IsActive,
                     ReviewStatus = p.ReviewStatus,
+                    RejectionReason = p.RejectionReason,
                     CreatedAtUtc = p.CreatedAtUtc,
                     UpdatedAtUtc = p.UpdatedAtUtc,
 
@@ -611,6 +613,7 @@ public static class WorkoutPlanEndpoints
             }
 
             plan.ReviewStatus = "Rejected";
+            plan.RejectionReason = request.Reason.Trim();
             plan.UpdatedAtUtc = DateTime.UtcNow;
 
             await db.SaveChangesAsync(cancellationToken);
@@ -620,7 +623,7 @@ public static class WorkoutPlanEndpoints
                 plan.Id,
                 plan.Name,
                 plan.ReviewStatus,
-                RejectionReason = request.Reason.Trim(),
+                plan.RejectionReason,
                 plan.UpdatedAtUtc,
                 Message = "Workout plan rejected successfully."
             });
