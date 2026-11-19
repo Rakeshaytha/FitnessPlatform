@@ -431,11 +431,12 @@ public static class WorkoutPlanEndpoints
             }
 
             // Step 2: Validate review status
-            if (plan.ReviewStatus != "Draft")
+            if (plan.ReviewStatus != "Draft" &&
+                plan.ReviewStatus != "Rejected")
             {
                 return Results.Conflict(new
                 {
-                    Error = "Only Draft workout plans can be submitted for review."
+                    Error = "Only Draft or Rejected workout plans can be submitted for review."
                 });
             }
 
@@ -495,6 +496,10 @@ public static class WorkoutPlanEndpoints
 
             // Step 6: Update review status
             plan.ReviewStatus = "In Review";
+
+            // Clear previous rejection reason after successful validation
+            plan.RejectionReason = null;
+
             plan.UpdatedAtUtc = DateTime.UtcNow;
 
             await db.SaveChangesAsync(cancellationToken);

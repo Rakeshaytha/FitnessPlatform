@@ -7,10 +7,11 @@ namespace FitnessPlatform.Application.WorkoutPlans;
 public static class WorkoutPlanReviewWorkflowValidator
 {
     public static bool CanSubmitForReview(
-        string reviewStatus,
-        bool isActive)
+     string reviewStatus,
+     bool isActive)
     {
-        return reviewStatus == "Draft" && isActive;
+        return (reviewStatus == "Draft" ||
+                reviewStatus == "Rejected") && isActive;
     }
 
     public static bool CanApprove(

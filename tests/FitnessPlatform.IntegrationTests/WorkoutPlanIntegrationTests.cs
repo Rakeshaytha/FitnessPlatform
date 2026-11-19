@@ -1,4 +1,4 @@
-
+﻿
 using FitnessPlatform.Contracts.Exercises;
 using FitnessPlatform.Contracts.WorkoutPlans;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -2472,5 +2472,355 @@ public class WorkoutPlanIntegrationTests
         Assert.Null(finalDetails.RejectionReason);
         Assert.True(finalDetails.IsActive);
     }
+
+    [Fact]
+    public async Task Admin_CanResubmitRejectedWorkoutPlan()
+    {
+        using var factory = new FitnessPlatformWebApplicationFactory();
+
+        await TestIdentitySeeder.SeedAsync(factory.Services);
+
+        using var client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions
+            {
+                AllowAutoRedirect = false
+            });
+
+        // Step 1: Authenticate as Admin
+        var loginResponse = await client.PostAsJsonAsync(
+            "/api/auth/login",
+            new
+            {
+                Email = TestIdentitySeeder.AdminEmail,
+                Password = TestIdentitySeeder.TestPassword
+            });
+
+        Assert.Equal(HttpStatusCode.OK, loginResponse.StatusCode);
+
+        var login = await loginResponse.Content
+            .ReadFromJsonAsync<LoginTestResponse>();
+
+        Assert.NotNull(login);
+
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue(
+                "Bearer",
+                login.AccessToken);
+
+        // Step 2: Create workout plan
+        var planResponse = await client.PostAsJsonAsync(
+            "/api/admin/workout-plans",
+            new CreateWorkoutPlanRequest
+            {
+                Name = $"Approval Test {Guid.NewGuid():N}",
+                Description = "Workout plan approval integration test.",
+                GoalCode = "WEIGHT_LOSS",
+                ExperienceLevel = "Beginner",
+                TrainingLocation = "Gym",
+                DaysPerWeek = 3,
+                DurationWeeks = 12
+            });
+
+        Assert.Equal(
+            HttpStatusCode.Created,
+            planResponse.StatusCode);
+
+        var plan = await planResponse.Content
+            .ReadFromJsonAsync<WorkoutPlanResponse>();
+
+        Assert.NotNull(plan);
+        Assert.Equal("Draft", plan.ReviewStatus);
+
+        // Step 3: Add workout day
+        var dayResponse = await client.PostAsJsonAsync(
+            $"/api/admin/workout-plans/{plan.Id}/days",
+            new CreateWorkoutPlanDayRequest
+            {
+                DayNumber = 1,
+                Name = "Full Body Strength",
+                IsRestDay = false,
+                EstimatedDurationMinutes = 60
+            });
+
+        Assert.Equal(
+            HttpStatusCode.Created,
+            dayResponse.StatusCode);
+
+        var day = await dayResponse.Content
+            .ReadFromJsonAsync<WorkoutPlanDayResponse>();
+
+        Assert.NotNull(day);
+
+        // Step 4: Create exercise
+        var exerciseResponse = await client.PostAsJsonAsync(
+            "/api/exercises",
+            new
+            {
+                Code = $"APPROVAL-{Guid.NewGuid():N}",
+                Name = "Approval Test Squat",
+                Description = "Exercise for workout plan approval.",
+                MuscleGroup = "Legs",
+                Equipment = "Bodyweight",
+                DifficultyLevel = "Beginner",
+                TrainingLocation = "Gym",
+                Instructions = "Perform controlled squats.",
+                VideoUrl = "",
+                GifUrl = ""
+            });
+
+        Assert.Equal(
+            HttpStatusCode.Created,
+            exerciseResponse.StatusCode);
+
+        using var exerciseJson = JsonDocument.Parse(
+            await exerciseResponse.Content.ReadAsStringAsync());
+
+        var exerciseId = exerciseJson.RootElement
+            .GetProperty("id")
+            .GetGuid();
+
+        // Step 5: Assign exercise
+        var assignmentResponse = await client.PostAsJsonAsync(
+            $"/api/admin/workout-plans/{plan.Id}/days/{day.Id}/exercises",
+            new AddWorkoutPlanExerciseRequest
+            {
+                ExerciseId = exerciseId,
+                ExerciseOrder = 1,
+                Sets = 3,
+                Reps = 12,
+                RestSeconds = 60
+            });
+
+        Assert.Equal(
+            HttpStatusCode.Created,
+            assignmentResponse.StatusCode);
+
+        // Step 6: Submit workout plan for review
+        var submitResponse = await client.PostAsync(
+            $"/api/admin/workout-plans/{plan.Id}/submit-for-review",
+            null);
+
+        Assert.Equal(
+            HttpStatusCode.OK,
+            submitResponse.StatusCode);
+
+        // Step 7: Verify In Review status
+        var reviewDetails =
+            await client.GetFromJsonAsync<WorkoutPlanDetailResponse>(
+                $"/api/admin/workout-plans/{plan.Id}");
+
+        Assert.NotNull(reviewDetails);
+        Assert.Equal("In Review", reviewDetails.ReviewStatus);
+
+        // Step 8: Reject workout plan with reason
+        const string reason = "Workout plan requires additional recovery days.";
+        var rejectResponse = await client.PostAsJsonAsync($"/api/admin/workout-plans/{plan.Id}/reject", new RejectWorkoutPlanRequest { Reason = reason });
+        Assert.Equal(HttpStatusCode.OK, rejectResponse.StatusCode);
+        var details = await client.GetFromJsonAsync<WorkoutPlanDetailResponse>($"/api/admin/workout-plans/{plan.Id}");
+        Assert.NotNull(details);
+        Assert.Equal("Rejected", details.ReviewStatus);
+        Assert.Equal(reason, details.RejectionReason);
+
+        // Step 10: Resubmit the rejected workout plan
+        var resubmitResponse = await client.PostAsync(
+            $"/api/admin/workout-plans/{plan.Id}/submit-for-review",
+            null);
+
+        Assert.Equal(HttpStatusCode.OK, resubmitResponse.StatusCode);
+
+        // Step 11: Verify the plan returned to In Review
+        var resubmittedDetails =
+            await client.GetFromJsonAsync<WorkoutPlanDetailResponse>(
+                $"/api/admin/workout-plans/{plan.Id}");
+
+        Assert.NotNull(resubmittedDetails);
+
+        Assert.Equal("In Review", resubmittedDetails.ReviewStatus);
+
+        // Step 12: Verify the previous rejection reason was cleared
+        Assert.Null(resubmittedDetails.RejectionReason);
+
+        // Step 13: Verify workout days and exercises were preserved
+        var savedDay = Assert.Single(resubmittedDetails.Days);
+
+        Assert.Equal(day.Id, savedDay.Id);
+
+        var savedExercise = Assert.Single(savedDay.Exercises);
+
+        Assert.Equal(exerciseId, savedExercise.ExerciseId);
+    }
+
+    [Fact]
+    public async Task Admin_CannotResubmitApprovedWorkoutPlan()
+    {
+        using var factory = new FitnessPlatformWebApplicationFactory();
+
+        await TestIdentitySeeder.SeedAsync(factory.Services);
+
+        using var client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions
+            {
+                AllowAutoRedirect = false
+            });
+
+        // Step 1: Authenticate as Admin
+        var loginResponse = await client.PostAsJsonAsync(
+            "/api/auth/login",
+            new
+            {
+                Email = TestIdentitySeeder.AdminEmail,
+                Password = TestIdentitySeeder.TestPassword
+            });
+
+        Assert.Equal(HttpStatusCode.OK, loginResponse.StatusCode);
+
+        var login = await loginResponse.Content
+            .ReadFromJsonAsync<LoginTestResponse>();
+
+        Assert.NotNull(login);
+
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue(
+                "Bearer",
+                login.AccessToken);
+
+        // Step 2: Create workout plan
+        var planResponse = await client.PostAsJsonAsync(
+            "/api/admin/workout-plans",
+            new CreateWorkoutPlanRequest
+            {
+                Name = $"Approval Test {Guid.NewGuid():N}",
+                Description = "Workout plan approval integration test.",
+                GoalCode = "WEIGHT_LOSS",
+                ExperienceLevel = "Beginner",
+                TrainingLocation = "Gym",
+                DaysPerWeek = 3,
+                DurationWeeks = 12
+            });
+
+        Assert.Equal(
+            HttpStatusCode.Created,
+            planResponse.StatusCode);
+
+        var plan = await planResponse.Content
+            .ReadFromJsonAsync<WorkoutPlanResponse>();
+
+        Assert.NotNull(plan);
+        Assert.Equal("Draft", plan.ReviewStatus);
+
+        // Step 3: Add workout day
+        var dayResponse = await client.PostAsJsonAsync(
+            $"/api/admin/workout-plans/{plan.Id}/days",
+            new CreateWorkoutPlanDayRequest
+            {
+                DayNumber = 1,
+                Name = "Full Body Strength",
+                IsRestDay = false,
+                EstimatedDurationMinutes = 60
+            });
+
+        Assert.Equal(
+            HttpStatusCode.Created,
+            dayResponse.StatusCode);
+
+        var day = await dayResponse.Content
+            .ReadFromJsonAsync<WorkoutPlanDayResponse>();
+
+        Assert.NotNull(day);
+
+        // Step 4: Create exercise
+        var exerciseResponse = await client.PostAsJsonAsync(
+            "/api/exercises",
+            new
+            {
+                Code = $"APPROVAL-{Guid.NewGuid():N}",
+                Name = "Approval Test Squat",
+                Description = "Exercise for workout plan approval.",
+                MuscleGroup = "Legs",
+                Equipment = "Bodyweight",
+                DifficultyLevel = "Beginner",
+                TrainingLocation = "Gym",
+                Instructions = "Perform controlled squats.",
+                VideoUrl = "",
+                GifUrl = ""
+            });
+
+        Assert.Equal(
+            HttpStatusCode.Created,
+            exerciseResponse.StatusCode);
+
+        using var exerciseJson = JsonDocument.Parse(
+            await exerciseResponse.Content.ReadAsStringAsync());
+
+        var exerciseId = exerciseJson.RootElement
+            .GetProperty("id")
+            .GetGuid();
+
+        // Step 5: Assign exercise
+        var assignmentResponse = await client.PostAsJsonAsync(
+            $"/api/admin/workout-plans/{plan.Id}/days/{day.Id}/exercises",
+            new AddWorkoutPlanExerciseRequest
+            {
+                ExerciseId = exerciseId,
+                ExerciseOrder = 1,
+                Sets = 3,
+                Reps = 12,
+                RestSeconds = 60
+            });
+
+        Assert.Equal(
+            HttpStatusCode.Created,
+            assignmentResponse.StatusCode);
+
+        // Step 6: Submit workout plan for review
+        var submitResponse = await client.PostAsync(
+            $"/api/admin/workout-plans/{plan.Id}/submit-for-review",
+            null);
+
+        Assert.Equal(
+            HttpStatusCode.OK,
+            submitResponse.StatusCode);
+
+        // Step 7: Verify In Review status
+        var reviewDetails =
+            await client.GetFromJsonAsync<WorkoutPlanDetailResponse>(
+                $"/api/admin/workout-plans/{plan.Id}");
+
+        Assert.NotNull(reviewDetails);
+        Assert.Equal("In Review", reviewDetails.ReviewStatus);
+
+        // Step 8: Approve workout plan
+        var approveResponse = await client.PostAsync(
+            $"/api/admin/workout-plans/{plan.Id}/approve",
+            null);
+
+        Assert.Equal(HttpStatusCode.OK, approveResponse.StatusCode);
+
+        // Step 9: Verify plan is Approved before attempting resubmission
+        var approvedDetails =
+            await client.GetFromJsonAsync<WorkoutPlanDetailResponse>(
+                $"/api/admin/workout-plans/{plan.Id}");
+
+        Assert.NotNull(approvedDetails);
+        Assert.Equal("Approved", approvedDetails.ReviewStatus);
+
+        // Attempt to resubmit an already approved workout plan
+        var resubmitResponse = await client.PostAsync(
+            $"/api/admin/workout-plans/{plan.Id}/submit-for-review",
+            null);
+
+        Assert.Equal(HttpStatusCode.Conflict, resubmitResponse.StatusCode);
+
+        // Verify the approved status remains unchanged
+        var finalDetails = await client.GetFromJsonAsync<WorkoutPlanDetailResponse>(
+            $"/api/admin/workout-plans/{plan.Id}");
+
+        Assert.NotNull(finalDetails);
+        Assert.Equal("Approved", finalDetails.ReviewStatus);
+        Assert.Null(finalDetails.RejectionReason);
+        Assert.True(finalDetails.IsActive);
+    }
+
 }
+
 
