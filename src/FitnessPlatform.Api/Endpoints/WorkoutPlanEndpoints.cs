@@ -128,7 +128,19 @@ public static class WorkoutPlanEndpoints
                 });
             }
 
-            if (request.DayNumber < 1 ||
+
+            if (!WorkoutPlanReviewWorkflowValidator.CanEdit(
+                    plan.ReviewStatus,
+                    plan.IsActive))
+            {
+                return Results.Conflict(new
+                {
+                    Error = "Only active Draft or Rejected workout plans can be edited."
+                });
+            }
+
+
+                    if (request.DayNumber < 1 ||
                 request.DayNumber > 7)
             {
                 return Results.BadRequest(new
@@ -226,6 +238,18 @@ public static class WorkoutPlanEndpoints
                     Error = "Workout plan not found."
                 });
             }
+
+
+            if (!WorkoutPlanReviewWorkflowValidator.CanEdit(
+                    plan.ReviewStatus,
+                    plan.IsActive))
+            {
+                return Results.Conflict(new
+                {
+                    Error = "Only active Draft or Rejected workout plans can be edited."
+                });
+            }
+
 
             var day = await db.WorkoutPlanDays
                 .FindAsync(new object[] { dayId }, cancellationToken);
@@ -534,6 +558,18 @@ public static class WorkoutPlanEndpoints
                     Error = "Workout plan not found."
                 });
             }
+
+
+            if (!WorkoutPlanReviewWorkflowValidator.CanEdit(
+                    plan.ReviewStatus,
+                    plan.IsActive))
+            {
+                return Results.Conflict(new
+                {
+                    Error = "Only active Draft or Rejected workout plans can be edited."
+                });
+            }
+
 
             // Step 2: Validate review status
             if (plan.ReviewStatus != "In Review")

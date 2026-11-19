@@ -26,5 +26,15 @@ public static class WorkoutPlanReviewWorkflowValidator
     {
         return reviewStatus == "In Review";
     }
+
+
+    public static bool CanEdit(
+        string reviewStatus,
+        bool isActive)
+    {
+        return (reviewStatus == "Draft" ||
+                reviewStatus == "Rejected") && isActive;
+    }
+
 }
 
