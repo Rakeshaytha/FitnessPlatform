@@ -6915,6 +6915,2071 @@ public class WorkoutPlanIntegrationTests
         Assert.False(savedDay.IsRestDay);
         Assert.Equal(75, savedDay.EstimatedDurationMinutes);
     }
+    
+    [Fact]
+    public async Task Admin_CanUpdateWorkoutPlanExerciseAssignment()
+    {
+        using var factory = new FitnessPlatformWebApplicationFactory();
+
+        await TestIdentitySeeder.SeedAsync(factory.Services);
+
+        using var client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions
+            {
+                AllowAutoRedirect = false
+            });
+
+        // Step 1: Authenticate as Admin
+        var loginResponse = await client.PostAsJsonAsync(
+            "/api/auth/login",
+            new
+            {
+                Email = TestIdentitySeeder.AdminEmail,
+                Password = TestIdentitySeeder.TestPassword
+            });
+
+        Assert.Equal(HttpStatusCode.OK, loginResponse.StatusCode);
+
+        var login = await loginResponse.Content
+            .ReadFromJsonAsync<LoginTestResponse>();
+
+        Assert.NotNull(login);
+
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", login.AccessToken);
+
+        // Step 2: Create workout plan
+        var planResponse = await client.PostAsJsonAsync(
+            "/api/admin/workout-plans",
+            new CreateWorkoutPlanRequest
+            {
+                Name = $"Exercise Update Test {Guid.NewGuid():N}",
+                GoalCode = "WEIGHT_LOSS",
+                ExperienceLevel = "Beginner",
+                TrainingLocation = "Gym",
+                DaysPerWeek = 3,
+                DurationWeeks = 12
+            });
+
+        Assert.Equal(HttpStatusCode.Created, planResponse.StatusCode);
+
+        var plan = await planResponse.Content
+            .ReadFromJsonAsync<WorkoutPlanResponse>();
+
+        Assert.NotNull(plan);
+
+        // Step 3: Create workout day
+        var dayResponse = await client.PostAsJsonAsync(
+            $"/api/admin/workout-plans/{plan.Id}/days",
+            new CreateWorkoutPlanDayRequest
+            {
+                DayNumber = 1,
+                Name = "Chest Workout",
+                Description = "Chest training session",
+                IsRestDay = false,
+                EstimatedDurationMinutes = 60
+            });
+
+        Assert.Equal(HttpStatusCode.Created, dayResponse.StatusCode);
+
+        var day = await dayResponse.Content
+            .ReadFromJsonAsync<WorkoutPlanDayResponse>();
+
+        Assert.NotNull(day);
+
+        // Step 4: Create exercise in Exercise Master
+        var exerciseResponse = await client.PostAsJsonAsync(
+            "/api/exercises",
+            new SaveExerciseRequest
+            {
+                Code = $"EX-UPD-{Guid.NewGuid():N}",
+                Name = "Exercise Assignment Update Test",
+                Description = "Exercise for assignment editing",
+                MuscleGroup = "Chest",
+                Equipment = "Dumbbell",
+                DifficultyLevel = "Beginner",
+                TrainingLocation = "Gym",
+                Instructions = "Perform controlled repetitions."
+            });
+
+        Assert.Equal(HttpStatusCode.Created, exerciseResponse.StatusCode);
+
+        var exercise = await exerciseResponse.Content
+            .ReadFromJsonAsync<ExerciseResponse>();
+
+        Assert.NotNull(exercise);
+
+        // Step 5: Assign exercise to workout day
+        var assignmentResponse = await client.PostAsJsonAsync(
+            $"/api/admin/workout-plans/{plan.Id}/days/{day.Id}/exercises",
+            new AddWorkoutPlanExerciseRequest
+            {
+                ExerciseId = exercise.Id,
+                ExerciseOrder = 1,
+                Sets = 3,
+                Reps = 12,
+                RestSeconds = 60,
+                DurationSeconds = null,
+                Notes = "Original instructions"
+            });
+
+        Assert.Equal(
+            HttpStatusCode.Created,
+            assignmentResponse.StatusCode);
+
+        var assignment = await assignmentResponse.Content
+            .ReadFromJsonAsync<WorkoutPlanExerciseResponse>();
+
+        Assert.NotNull(assignment);
+        Assert.NotEqual(Guid.Empty, assignment.Id);
+
+        // Step 6: Update the existing exercise assignment
+        var updateResponse = await client.PutAsJsonAsync(
+            $"/api/admin/workout-plans/{plan.Id}/days/{day.Id}/exercises/{assignment.Id}",
+            new UpdateWorkoutPlanExerciseRequest
+            {
+                ExerciseId = exercise.Id,
+                ExerciseOrder = 2,
+                Sets = 4,
+                Reps = 10,
+                RestSeconds = 90,
+                DurationSeconds = 600,
+                Notes = "  Updated exercise instructions  "
+            });
+
+        Assert.Equal(HttpStatusCode.OK, updateResponse.StatusCode);
+
+        // Step 7: Verify updated response
+        var updatedAssignment = await updateResponse.Content
+            .ReadFromJsonAsync<WorkoutPlanExerciseResponse>();
+
+        Assert.NotNull(updatedAssignment);
+
+        Assert.Equal(assignment.Id, updatedAssignment.Id);
+        Assert.Equal(day.Id, updatedAssignment.WorkoutPlanDayId);
+        Assert.Equal(exercise.Id, updatedAssignment.ExerciseId);
+        Assert.Equal(2, updatedAssignment.ExerciseOrder);
+        Assert.Equal(4, updatedAssignment.Sets);
+        Assert.Equal(10, updatedAssignment.Reps);
+        Assert.Equal(90, updatedAssignment.RestSeconds);
+        Assert.Equal(600, updatedAssignment.DurationSeconds);
+        Assert.Equal(
+            "Updated exercise instructions",
+            updatedAssignment.Notes);
+
+        // Step 8: Retrieve workout plan again
+        var savedPlan = await client
+            .GetFromJsonAsync<WorkoutPlanDetailResponse>(
+                $"/api/admin/workout-plans/{plan.Id}");
+
+        Assert.NotNull(savedPlan);
+
+        var savedDay = Assert.Single(savedPlan.Days);
+        var savedAssignment = Assert.Single(savedDay.Exercises);
+
+        // Step 9: Verify database persistence
+        Assert.Equal(assignment.Id, savedAssignment.Id);
+        Assert.Equal(exercise.Id, savedAssignment.ExerciseId);
+        Assert.Equal(2, savedAssignment.ExerciseOrder);
+        Assert.Equal(4, savedAssignment.Sets);
+        Assert.Equal(10, savedAssignment.Reps);
+        Assert.Equal(90, savedAssignment.RestSeconds);
+        Assert.Equal(600, savedAssignment.DurationSeconds);
+        Assert.Equal(
+            "Updated exercise instructions",
+            savedAssignment.Notes);
+    }
+
+    [Fact]
+    public async Task Admin_CannotUpdateWorkoutPlanExercise_WithInvalidExerciseId()
+    {
+        using var factory = new FitnessPlatformWebApplicationFactory();
+
+        await TestIdentitySeeder.SeedAsync(factory.Services);
+
+        using var client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions
+            {
+                AllowAutoRedirect = false
+            });
+
+        // Step 1: Authenticate as Admin
+        var loginResponse = await client.PostAsJsonAsync(
+            "/api/auth/login",
+            new
+            {
+                Email = TestIdentitySeeder.AdminEmail,
+                Password = TestIdentitySeeder.TestPassword
+            });
+
+        Assert.Equal(HttpStatusCode.OK, loginResponse.StatusCode);
+
+        var login = await loginResponse.Content
+            .ReadFromJsonAsync<LoginTestResponse>();
+
+        Assert.NotNull(login);
+
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", login.AccessToken);
+
+        // Step 2: Create workout plan
+        var planResponse = await client.PostAsJsonAsync(
+            "/api/admin/workout-plans",
+            new CreateWorkoutPlanRequest
+            {
+                Name = $"Exercise Update Test {Guid.NewGuid():N}",
+                GoalCode = "WEIGHT_LOSS",
+                ExperienceLevel = "Beginner",
+                TrainingLocation = "Gym",
+                DaysPerWeek = 3,
+                DurationWeeks = 12
+            });
+
+        Assert.Equal(HttpStatusCode.Created, planResponse.StatusCode);
+
+        var plan = await planResponse.Content
+            .ReadFromJsonAsync<WorkoutPlanResponse>();
+
+        Assert.NotNull(plan);
+
+        // Step 3: Create workout day
+        var dayResponse = await client.PostAsJsonAsync(
+            $"/api/admin/workout-plans/{plan.Id}/days",
+            new CreateWorkoutPlanDayRequest
+            {
+                DayNumber = 1,
+                Name = "Chest Workout",
+                Description = "Chest training session",
+                IsRestDay = false,
+                EstimatedDurationMinutes = 60
+            });
+
+        Assert.Equal(HttpStatusCode.Created, dayResponse.StatusCode);
+
+        var day = await dayResponse.Content
+            .ReadFromJsonAsync<WorkoutPlanDayResponse>();
+
+        Assert.NotNull(day);
+
+        // Step 4: Create exercise in Exercise Master
+        var exerciseResponse = await client.PostAsJsonAsync(
+            "/api/exercises",
+            new SaveExerciseRequest
+            {
+                Code = $"EX-UPD-{Guid.NewGuid():N}",
+                Name = "Exercise Assignment Update Test",
+                Description = "Exercise for assignment editing",
+                MuscleGroup = "Chest",
+                Equipment = "Dumbbell",
+                DifficultyLevel = "Beginner",
+                TrainingLocation = "Gym",
+                Instructions = "Perform controlled repetitions."
+            });
+
+        Assert.Equal(HttpStatusCode.Created, exerciseResponse.StatusCode);
+
+        var exercise = await exerciseResponse.Content
+            .ReadFromJsonAsync<ExerciseResponse>();
+
+        Assert.NotNull(exercise);
+
+        // Step 5: Assign exercise to workout day
+        var assignmentResponse = await client.PostAsJsonAsync(
+            $"/api/admin/workout-plans/{plan.Id}/days/{day.Id}/exercises",
+            new AddWorkoutPlanExerciseRequest
+            {
+                ExerciseId = exercise.Id,
+                ExerciseOrder = 1,
+                Sets = 3,
+                Reps = 12,
+                RestSeconds = 60,
+                DurationSeconds = null,
+                Notes = "Original instructions"
+            });
+
+        Assert.Equal(
+            HttpStatusCode.Created,
+            assignmentResponse.StatusCode);
+
+        var assignment = await assignmentResponse.Content
+            .ReadFromJsonAsync<WorkoutPlanExerciseResponse>();
+
+        Assert.NotNull(assignment);
+        Assert.NotEqual(Guid.Empty, assignment.Id);
+
+        // Step 6: Attempt to update assignment with nonexistent Exercise ID
+        var invalidExerciseId = Guid.NewGuid();
+
+        var updateResponse = await client.PutAsJsonAsync(
+            $"/api/admin/workout-plans/{plan.Id}/days/{day.Id}/exercises/{assignment.Id}",
+            new UpdateWorkoutPlanExerciseRequest
+            {
+                ExerciseId = invalidExerciseId,
+                ExerciseOrder = 2,
+                Sets = 4,
+                Reps = 10,
+                RestSeconds = 90,
+                DurationSeconds = 600,
+                Notes = "Invalid exercise reference"
+            });
+
+        // Verify Exercise Master validation
+        Assert.Equal(HttpStatusCode.NotFound, updateResponse.StatusCode);
+
+        // Step 7: Retrieve workout plan after rejected update
+        var savedPlan = await client
+            .GetFromJsonAsync<WorkoutPlanDetailResponse>(
+                $"/api/admin/workout-plans/{plan.Id}");
+
+        Assert.NotNull(savedPlan);
+
+        var savedDay = Assert.Single(savedPlan.Days);
+        var savedAssignment = Assert.Single(savedDay.Exercises);
+
+        // Step 8: Verify original assignment remains unchanged
+        Assert.Equal(assignment.Id, savedAssignment.Id);
+        Assert.Equal(exercise.Id, savedAssignment.ExerciseId);
+        Assert.Equal(1, savedAssignment.ExerciseOrder);
+        Assert.Equal(3, savedAssignment.Sets);
+        Assert.Equal(12, savedAssignment.Reps);
+        Assert.Equal(60, savedAssignment.RestSeconds);
+        Assert.Null(savedAssignment.DurationSeconds);
+        Assert.Equal("Original instructions", savedAssignment.Notes);
+
+        // Confirm invalid exercise was not assigned
+        Assert.NotEqual(invalidExerciseId, savedAssignment.ExerciseId);
+    }
+
+    [Fact]
+    public async Task Admin_CannotUpdateWorkoutPlanExercise_WithNotesExceedingMaximumLength()
+    {
+        using var factory = new FitnessPlatformWebApplicationFactory();
+
+        await TestIdentitySeeder.SeedAsync(factory.Services);
+
+        using var client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions
+            {
+                AllowAutoRedirect = false
+            });
+
+        // Step 1: Authenticate as Admin
+        var loginResponse = await client.PostAsJsonAsync(
+            "/api/auth/login",
+            new
+            {
+                Email = TestIdentitySeeder.AdminEmail,
+                Password = TestIdentitySeeder.TestPassword
+            });
+
+        Assert.Equal(HttpStatusCode.OK, loginResponse.StatusCode);
+
+        var login = await loginResponse.Content
+            .ReadFromJsonAsync<LoginTestResponse>();
+
+        Assert.NotNull(login);
+
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", login.AccessToken);
+
+        // Step 2: Create workout plan
+        var planResponse = await client.PostAsJsonAsync(
+            "/api/admin/workout-plans",
+            new CreateWorkoutPlanRequest
+            {
+                Name = $"Exercise Update Test {Guid.NewGuid():N}",
+                GoalCode = "WEIGHT_LOSS",
+                ExperienceLevel = "Beginner",
+                TrainingLocation = "Gym",
+                DaysPerWeek = 3,
+                DurationWeeks = 12
+            });
+
+        Assert.Equal(HttpStatusCode.Created, planResponse.StatusCode);
+
+        var plan = await planResponse.Content
+            .ReadFromJsonAsync<WorkoutPlanResponse>();
+
+        Assert.NotNull(plan);
+
+        // Step 3: Create workout day
+        var dayResponse = await client.PostAsJsonAsync(
+            $"/api/admin/workout-plans/{plan.Id}/days",
+            new CreateWorkoutPlanDayRequest
+            {
+                DayNumber = 1,
+                Name = "Chest Workout",
+                Description = "Chest training session",
+                IsRestDay = false,
+                EstimatedDurationMinutes = 60
+            });
+
+        Assert.Equal(HttpStatusCode.Created, dayResponse.StatusCode);
+
+        var day = await dayResponse.Content
+            .ReadFromJsonAsync<WorkoutPlanDayResponse>();
+
+        Assert.NotNull(day);
+
+        // Step 4: Create exercise in Exercise Master
+        var exerciseResponse = await client.PostAsJsonAsync(
+            "/api/exercises",
+            new SaveExerciseRequest
+            {
+                Code = $"EX-UPD-{Guid.NewGuid():N}",
+                Name = "Exercise Assignment Update Test",
+                Description = "Exercise for assignment editing",
+                MuscleGroup = "Chest",
+                Equipment = "Dumbbell",
+                DifficultyLevel = "Beginner",
+                TrainingLocation = "Gym",
+                Instructions = "Perform controlled repetitions."
+            });
+
+        Assert.Equal(HttpStatusCode.Created, exerciseResponse.StatusCode);
+
+        var exercise = await exerciseResponse.Content
+            .ReadFromJsonAsync<ExerciseResponse>();
+
+        Assert.NotNull(exercise);
+
+        // Step 5: Assign exercise to workout day
+        var assignmentResponse = await client.PostAsJsonAsync(
+            $"/api/admin/workout-plans/{plan.Id}/days/{day.Id}/exercises",
+            new AddWorkoutPlanExerciseRequest
+            {
+                ExerciseId = exercise.Id,
+                ExerciseOrder = 1,
+                Sets = 3,
+                Reps = 12,
+                RestSeconds = 60,
+                DurationSeconds = null,
+                Notes = "Original instructions"
+            });
+
+        Assert.Equal(
+            HttpStatusCode.Created,
+            assignmentResponse.StatusCode);
+
+        var assignment = await assignmentResponse.Content
+            .ReadFromJsonAsync<WorkoutPlanExerciseResponse>();
+
+        Assert.NotNull(assignment);
+        Assert.NotEqual(Guid.Empty, assignment.Id);
+
+        // Step 6: Attempt to update assignment with notes exceeding 2000 characters
+        var invalidNotes = new string('A', 2001);
+
+        var updateResponse = await client.PutAsJsonAsync(
+            $"/api/admin/workout-plans/{plan.Id}/days/{day.Id}/exercises/{assignment.Id}",
+            new UpdateWorkoutPlanExerciseRequest
+            {
+                ExerciseId = exercise.Id,
+                ExerciseOrder = 2,
+                Sets = 4,
+                Reps = 10,
+                RestSeconds = 90,
+                DurationSeconds = 600,
+                Notes = invalidNotes
+            });
+
+        // Verify notes length validation
+        Assert.Equal(HttpStatusCode.BadRequest, updateResponse.StatusCode);
+
+        // Step 7: Retrieve workout plan after rejected update
+        var savedPlan = await client
+            .GetFromJsonAsync<WorkoutPlanDetailResponse>(
+                $"/api/admin/workout-plans/{plan.Id}");
+
+        Assert.NotNull(savedPlan);
+
+        var savedDay = Assert.Single(savedPlan.Days);
+        var savedAssignment = Assert.Single(savedDay.Exercises);
+
+        // Step 8: Verify original assignment remains unchanged
+        Assert.Equal(assignment.Id, savedAssignment.Id);
+        Assert.Equal(exercise.Id, savedAssignment.ExerciseId);
+        Assert.Equal(1, savedAssignment.ExerciseOrder);
+        Assert.Equal(3, savedAssignment.Sets);
+        Assert.Equal(12, savedAssignment.Reps);
+        Assert.Equal(60, savedAssignment.RestSeconds);
+        Assert.Null(savedAssignment.DurationSeconds);
+        Assert.Equal("Original instructions", savedAssignment.Notes);
+
+
+    }
+
+    [Fact]
+    public async Task Admin_CannotUpdateWorkoutPlanExercise_WhenPlanIsInReview()
+    {
+        using var factory = new FitnessPlatformWebApplicationFactory();
+
+        await TestIdentitySeeder.SeedAsync(factory.Services);
+
+        using var client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions
+            {
+                AllowAutoRedirect = false
+            });
+
+        // Step 1: Authenticate as Admin
+        var loginResponse = await client.PostAsJsonAsync(
+            "/api/auth/login",
+            new
+            {
+                Email = TestIdentitySeeder.AdminEmail,
+                Password = TestIdentitySeeder.TestPassword
+            });
+
+        Assert.Equal(HttpStatusCode.OK, loginResponse.StatusCode);
+
+        var login = await loginResponse.Content
+            .ReadFromJsonAsync<LoginTestResponse>();
+
+        Assert.NotNull(login);
+
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", login.AccessToken);
+
+        // Step 2: Create workout plan
+        var planResponse = await client.PostAsJsonAsync(
+            "/api/admin/workout-plans",
+            new CreateWorkoutPlanRequest
+            {
+                Name = $"In Review Exercise Test {Guid.NewGuid():N}",
+                GoalCode = "WEIGHT_LOSS",
+                ExperienceLevel = "Beginner",
+                TrainingLocation = "Gym",
+                DaysPerWeek = 3,
+                DurationWeeks = 12
+            });
+
+        Assert.Equal(HttpStatusCode.Created, planResponse.StatusCode);
+
+        var plan = await planResponse.Content
+            .ReadFromJsonAsync<WorkoutPlanResponse>();
+
+        Assert.NotNull(plan);
+
+        // Step 3: Create workout day
+        var dayResponse = await client.PostAsJsonAsync(
+            $"/api/admin/workout-plans/{plan.Id}/days",
+            new CreateWorkoutPlanDayRequest
+            {
+                DayNumber = 1,
+                Name = "Chest Workout",
+                Description = "Chest training",
+                IsRestDay = false,
+                EstimatedDurationMinutes = 60
+            });
+
+        Assert.Equal(HttpStatusCode.Created, dayResponse.StatusCode);
+
+        var day = await dayResponse.Content
+            .ReadFromJsonAsync<WorkoutPlanDayResponse>();
+
+        Assert.NotNull(day);
+
+        // Step 4: Create exercise
+        var exerciseResponse = await client.PostAsJsonAsync(
+            "/api/exercises",
+            new SaveExerciseRequest
+            {
+                Code = $"REVIEW-EX-{Guid.NewGuid():N}",
+                Name = "Review Restriction Exercise",
+                Description = "Exercise for review restriction testing",
+                MuscleGroup = "Chest",
+                Equipment = "Dumbbell",
+                DifficultyLevel = "Beginner",
+                TrainingLocation = "Gym",
+                Instructions = "Perform controlled repetitions."
+            });
+
+        Assert.Equal(HttpStatusCode.Created, exerciseResponse.StatusCode);
+
+        var exercise = await exerciseResponse.Content
+            .ReadFromJsonAsync<ExerciseResponse>();
+
+        Assert.NotNull(exercise);
+
+        // Step 5: Assign exercise
+        var assignmentResponse = await client.PostAsJsonAsync(
+            $"/api/admin/workout-plans/{plan.Id}/days/{day.Id}/exercises",
+            new AddWorkoutPlanExerciseRequest
+            {
+                ExerciseId = exercise.Id,
+                ExerciseOrder = 1,
+                Sets = 3,
+                Reps = 12,
+                RestSeconds = 60
+            });
+
+        Assert.Equal(HttpStatusCode.Created, assignmentResponse.StatusCode);
+
+        var assignment = await assignmentResponse.Content
+            .ReadFromJsonAsync<WorkoutPlanExerciseResponse>();
+
+        Assert.NotNull(assignment);
+
+        // Step 6: Submit workout plan for review
+        var submitResponse = await client.PostAsync(
+            $"/api/admin/workout-plans/{plan.Id}/submit-for-review",
+            null);
+
+        Assert.True(
+            submitResponse.IsSuccessStatusCode,
+            await submitResponse.Content.ReadAsStringAsync());
+
+        // Step 7: Verify plan is In Review
+        var reviewPlan = await client
+            .GetFromJsonAsync<WorkoutPlanDetailResponse>(
+                $"/api/admin/workout-plans/{plan.Id}");
+
+        Assert.NotNull(reviewPlan);
+        Assert.Equal("In Review", reviewPlan.ReviewStatus);
+
+        // Step 8: Attempt to update exercise assignment
+        var updateResponse = await client.PutAsJsonAsync(
+            $"/api/admin/workout-plans/{plan.Id}/days/{day.Id}/exercises/{assignment.Id}",
+            new UpdateWorkoutPlanExerciseRequest
+            {
+                ExerciseId = exercise.Id,
+                ExerciseOrder = 1,
+                Sets = 5,
+                Reps = 15,
+                RestSeconds = 90,
+                Notes = "This update should be rejected"
+            });
+
+        // Step 9: Verify update is blocked
+        Assert.Equal(HttpStatusCode.Conflict, updateResponse.StatusCode);
+
+        // Step 10: Verify original assignment remains unchanged
+        var savedPlan = await client
+            .GetFromJsonAsync<WorkoutPlanDetailResponse>(
+                $"/api/admin/workout-plans/{plan.Id}");
+
+        Assert.NotNull(savedPlan);
+
+        var savedDay = Assert.Single(savedPlan.Days);
+        var savedAssignment = Assert.Single(savedDay.Exercises);
+
+        Assert.Equal(assignment.Id, savedAssignment.Id);
+        Assert.Equal(3, savedAssignment.Sets);
+        Assert.Equal(12, savedAssignment.Reps);
+        Assert.Equal(60, savedAssignment.RestSeconds);
+    }
+
+    [Fact]
+    public async Task Admin_CanUpdateWorkoutPlanExercise_WhenPlanIsRejected()
+    {
+        using var factory = new FitnessPlatformWebApplicationFactory();
+
+        await TestIdentitySeeder.SeedAsync(factory.Services);
+
+        using var client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions
+            {
+                AllowAutoRedirect = false
+            });
+
+        // Step 1: Authenticate as Admin
+        var loginResponse = await client.PostAsJsonAsync(
+            "/api/auth/login",
+            new
+            {
+                Email = TestIdentitySeeder.AdminEmail,
+                Password = TestIdentitySeeder.TestPassword
+            });
+
+        Assert.Equal(HttpStatusCode.OK, loginResponse.StatusCode);
+
+        var login = await loginResponse.Content
+            .ReadFromJsonAsync<LoginTestResponse>();
+
+        Assert.NotNull(login);
+
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", login.AccessToken);
+
+        // Step 2: Create workout plan
+        var planResponse = await client.PostAsJsonAsync(
+            "/api/admin/workout-plans",
+            new CreateWorkoutPlanRequest
+            {
+                Name = $"In Review Exercise Test {Guid.NewGuid():N}",
+                GoalCode = "WEIGHT_LOSS",
+                ExperienceLevel = "Beginner",
+                TrainingLocation = "Gym",
+                DaysPerWeek = 3,
+                DurationWeeks = 12
+            });
+
+        Assert.Equal(HttpStatusCode.Created, planResponse.StatusCode);
+
+        var plan = await planResponse.Content
+            .ReadFromJsonAsync<WorkoutPlanResponse>();
+
+        Assert.NotNull(plan);
+
+        // Step 3: Create workout day
+        var dayResponse = await client.PostAsJsonAsync(
+            $"/api/admin/workout-plans/{plan.Id}/days",
+            new CreateWorkoutPlanDayRequest
+            {
+                DayNumber = 1,
+                Name = "Chest Workout",
+                Description = "Chest training",
+                IsRestDay = false,
+                EstimatedDurationMinutes = 60
+            });
+
+        Assert.Equal(HttpStatusCode.Created, dayResponse.StatusCode);
+
+        var day = await dayResponse.Content
+            .ReadFromJsonAsync<WorkoutPlanDayResponse>();
+
+        Assert.NotNull(day);
+
+        // Step 4: Create exercise
+        var exerciseResponse = await client.PostAsJsonAsync(
+            "/api/exercises",
+            new SaveExerciseRequest
+            {
+                Code = $"REVIEW-EX-{Guid.NewGuid():N}",
+                Name = "Review Restriction Exercise",
+                Description = "Exercise for review restriction testing",
+                MuscleGroup = "Chest",
+                Equipment = "Dumbbell",
+                DifficultyLevel = "Beginner",
+                TrainingLocation = "Gym",
+                Instructions = "Perform controlled repetitions."
+            });
+
+        Assert.Equal(HttpStatusCode.Created, exerciseResponse.StatusCode);
+
+        var exercise = await exerciseResponse.Content
+            .ReadFromJsonAsync<ExerciseResponse>();
+
+        Assert.NotNull(exercise);
+
+        // Step 5: Assign exercise
+        var assignmentResponse = await client.PostAsJsonAsync(
+            $"/api/admin/workout-plans/{plan.Id}/days/{day.Id}/exercises",
+            new AddWorkoutPlanExerciseRequest
+            {
+                ExerciseId = exercise.Id,
+                ExerciseOrder = 1,
+                Sets = 3,
+                Reps = 12,
+                RestSeconds = 60
+            });
+
+        Assert.Equal(HttpStatusCode.Created, assignmentResponse.StatusCode);
+
+        var assignment = await assignmentResponse.Content
+            .ReadFromJsonAsync<WorkoutPlanExerciseResponse>();
+
+        Assert.NotNull(assignment);
+
+        // Step 6: Submit workout plan for review
+        var submitResponse = await client.PostAsync(
+            $"/api/admin/workout-plans/{plan.Id}/submit-for-review",
+            null);
+
+        Assert.True(
+            submitResponse.IsSuccessStatusCode,
+            await submitResponse.Content.ReadAsStringAsync());
+
+        // Step 7: Verify plan is In Review
+        var reviewPlan = await client
+            .GetFromJsonAsync<WorkoutPlanDetailResponse>(
+                $"/api/admin/workout-plans/{plan.Id}");
+
+        Assert.NotNull(reviewPlan);
+        Assert.Equal("In Review", reviewPlan.ReviewStatus);
+
+        // Reject the workout plan
+        var rejectResponse = await client.PostAsJsonAsync(
+            $"/api/admin/workout-plans/{plan.Id}/reject",
+            new
+            {
+                Reason = "Exercise assignment needs improvement"
+            });
+
+        Assert.True(
+            rejectResponse.IsSuccessStatusCode,
+            await rejectResponse.Content.ReadAsStringAsync());
+
+        // Verify Rejected status
+        var rejectedPlan = await client
+            .GetFromJsonAsync<WorkoutPlanDetailResponse>(
+                $"/api/admin/workout-plans/{plan.Id}");
+
+        Assert.NotNull(rejectedPlan);
+        Assert.Equal("Rejected", rejectedPlan.ReviewStatus);
+
+        // Step 8: Attempt to update exercise assignment
+        var updateResponse = await client.PutAsJsonAsync(
+            $"/api/admin/workout-plans/{plan.Id}/days/{day.Id}/exercises/{assignment.Id}",
+            new UpdateWorkoutPlanExerciseRequest
+            {
+                ExerciseId = exercise.Id,
+                ExerciseOrder = 1,
+                Sets = 5,
+                Reps = 15,
+                RestSeconds = 90,
+                Notes = "This update should be rejected"
+            });
+
+        // Step 9: Verify update is blocked
+        Assert.Equal(HttpStatusCode.OK, updateResponse.StatusCode);
+
+        // Step 10: Verify original assignment remains unchanged
+        var savedPlan = await client
+            .GetFromJsonAsync<WorkoutPlanDetailResponse>(
+                $"/api/admin/workout-plans/{plan.Id}");
+
+        Assert.NotNull(savedPlan);
+
+        var savedDay = Assert.Single(savedPlan.Days);
+        var savedAssignment = Assert.Single(savedDay.Exercises);
+
+        Assert.Equal(assignment.Id, savedAssignment.Id);
+        Assert.Equal(exercise.Id, savedAssignment.ExerciseId);
+        Assert.Equal(1, savedAssignment.ExerciseOrder);
+        Assert.Equal(5, savedAssignment.Sets);
+        Assert.Equal(15, savedAssignment.Reps);
+        Assert.Equal(90, savedAssignment.RestSeconds);
+        Assert.Equal(
+            "This update should be rejected",
+            savedAssignment.Notes);
+    }
+
+
+    [Fact]
+    public async Task Admin_CannotUpdateWorkoutPlanExercise_WhenPlanIsApproved()
+    {
+        using var factory = new FitnessPlatformWebApplicationFactory();
+
+        await TestIdentitySeeder.SeedAsync(factory.Services);
+
+        using var client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions
+            {
+                AllowAutoRedirect = false
+            });
+
+        // Step 1: Authenticate as Admin
+        var loginResponse = await client.PostAsJsonAsync(
+            "/api/auth/login",
+            new
+            {
+                Email = TestIdentitySeeder.AdminEmail,
+                Password = TestIdentitySeeder.TestPassword
+            });
+
+        Assert.Equal(HttpStatusCode.OK, loginResponse.StatusCode);
+
+        var login = await loginResponse.Content
+            .ReadFromJsonAsync<LoginTestResponse>();
+
+        Assert.NotNull(login);
+
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", login.AccessToken);
+
+        // Step 2: Create workout plan
+        var planResponse = await client.PostAsJsonAsync(
+            "/api/admin/workout-plans",
+            new CreateWorkoutPlanRequest
+            {
+                Name = $"In Review Exercise Test {Guid.NewGuid():N}",
+                GoalCode = "WEIGHT_LOSS",
+                ExperienceLevel = "Beginner",
+                TrainingLocation = "Gym",
+                DaysPerWeek = 3,
+                DurationWeeks = 12
+            });
+
+        Assert.Equal(HttpStatusCode.Created, planResponse.StatusCode);
+
+        var plan = await planResponse.Content
+            .ReadFromJsonAsync<WorkoutPlanResponse>();
+
+        Assert.NotNull(plan);
+
+        // Step 3: Create workout day
+        var dayResponse = await client.PostAsJsonAsync(
+            $"/api/admin/workout-plans/{plan.Id}/days",
+            new CreateWorkoutPlanDayRequest
+            {
+                DayNumber = 1,
+                Name = "Chest Workout",
+                Description = "Chest training",
+                IsRestDay = false,
+                EstimatedDurationMinutes = 60
+            });
+
+        Assert.Equal(HttpStatusCode.Created, dayResponse.StatusCode);
+
+        var day = await dayResponse.Content
+            .ReadFromJsonAsync<WorkoutPlanDayResponse>();
+
+        Assert.NotNull(day);
+
+        // Step 4: Create exercise
+        var exerciseResponse = await client.PostAsJsonAsync(
+            "/api/exercises",
+            new SaveExerciseRequest
+            {
+                Code = $"REVIEW-EX-{Guid.NewGuid():N}",
+                Name = "Review Restriction Exercise",
+                Description = "Exercise for review restriction testing",
+                MuscleGroup = "Chest",
+                Equipment = "Dumbbell",
+                DifficultyLevel = "Beginner",
+                TrainingLocation = "Gym",
+                Instructions = "Perform controlled repetitions."
+            });
+
+        Assert.Equal(HttpStatusCode.Created, exerciseResponse.StatusCode);
+
+        var exercise = await exerciseResponse.Content
+            .ReadFromJsonAsync<ExerciseResponse>();
+
+        Assert.NotNull(exercise);
+
+        // Step 5: Assign exercise
+        var assignmentResponse = await client.PostAsJsonAsync(
+            $"/api/admin/workout-plans/{plan.Id}/days/{day.Id}/exercises",
+            new AddWorkoutPlanExerciseRequest
+            {
+                ExerciseId = exercise.Id,
+                ExerciseOrder = 1,
+                Sets = 3,
+                Reps = 12,
+                RestSeconds = 60
+            });
+
+        Assert.Equal(HttpStatusCode.Created, assignmentResponse.StatusCode);
+
+        var assignment = await assignmentResponse.Content
+            .ReadFromJsonAsync<WorkoutPlanExerciseResponse>();
+
+        Assert.NotNull(assignment);
+
+        // Step 6: Submit workout plan for review
+        var submitResponse = await client.PostAsync(
+            $"/api/admin/workout-plans/{plan.Id}/submit-for-review",
+            null);
+
+        Assert.True(
+            submitResponse.IsSuccessStatusCode,
+            await submitResponse.Content.ReadAsStringAsync());
+
+        // Step 7: Verify plan is In Review
+        var reviewPlan = await client
+            .GetFromJsonAsync<WorkoutPlanDetailResponse>(
+                $"/api/admin/workout-plans/{plan.Id}");
+
+        Assert.NotNull(reviewPlan);
+        Assert.Equal("In Review", reviewPlan.ReviewStatus);
+
+        // Step 8: Approve workout plan
+        var approveResponse = await client.PostAsync(
+            $"/api/admin/workout-plans/{plan.Id}/approve",
+            null);
+
+        Assert.True(
+            approveResponse.IsSuccessStatusCode,
+            await approveResponse.Content.ReadAsStringAsync());
+
+        // Verify workout plan is Approved
+        var approvedPlan = await client
+            .GetFromJsonAsync<WorkoutPlanDetailResponse>(
+                $"/api/admin/workout-plans/{plan.Id}");
+
+        Assert.NotNull(approvedPlan);
+        Assert.Equal("Approved", approvedPlan.ReviewStatus);
+
+        // Step 8: Attempt to update exercise assignment
+        var updateResponse = await client.PutAsJsonAsync(
+            $"/api/admin/workout-plans/{plan.Id}/days/{day.Id}/exercises/{assignment.Id}",
+            new UpdateWorkoutPlanExerciseRequest
+            {
+                ExerciseId = exercise.Id,
+                ExerciseOrder = 1,
+                Sets = 5,
+                Reps = 15,
+                RestSeconds = 90,
+                Notes = "This update should be rejected"
+            });
+
+        // Step 9: Verify update is blocked
+        Assert.Equal(HttpStatusCode.Conflict, updateResponse.StatusCode);
+
+        // Step 10: Verify original assignment remains unchanged
+        var savedPlan = await client
+            .GetFromJsonAsync<WorkoutPlanDetailResponse>(
+                $"/api/admin/workout-plans/{plan.Id}");
+
+        Assert.NotNull(savedPlan);
+
+        var savedDay = Assert.Single(savedPlan.Days);
+        var savedAssignment = Assert.Single(savedDay.Exercises);
+
+        Assert.Equal(assignment.Id, savedAssignment.Id);
+        Assert.Equal(3, savedAssignment.Sets);
+        Assert.Equal(12, savedAssignment.Reps);
+        Assert.Equal(60, savedAssignment.RestSeconds);
+    }
+
+    [Fact]
+    public async Task Admin_CannotUpdateWorkoutPlanExercise_WhenPlanIsInactive()
+    {
+        using var factory = new FitnessPlatformWebApplicationFactory();
+
+        await TestIdentitySeeder.SeedAsync(factory.Services);
+
+        using var client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions
+            {
+                AllowAutoRedirect = false
+            });
+
+        // Step 1: Authenticate as Admin
+        var loginResponse = await client.PostAsJsonAsync(
+            "/api/auth/login",
+            new
+            {
+                Email = TestIdentitySeeder.AdminEmail,
+                Password = TestIdentitySeeder.TestPassword
+            });
+
+        Assert.Equal(HttpStatusCode.OK, loginResponse.StatusCode);
+
+        var login = await loginResponse.Content
+            .ReadFromJsonAsync<LoginTestResponse>();
+
+        Assert.NotNull(login);
+
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", login.AccessToken);
+
+        // Step 2: Create workout plan
+        var planResponse = await client.PostAsJsonAsync(
+            "/api/admin/workout-plans",
+            new CreateWorkoutPlanRequest
+            {
+                Name = $"In Review Exercise Test {Guid.NewGuid():N}",
+                GoalCode = "WEIGHT_LOSS",
+                ExperienceLevel = "Beginner",
+                TrainingLocation = "Gym",
+                DaysPerWeek = 3,
+                DurationWeeks = 12
+            });
+
+        Assert.Equal(HttpStatusCode.Created, planResponse.StatusCode);
+
+        var plan = await planResponse.Content
+            .ReadFromJsonAsync<WorkoutPlanResponse>();
+
+        Assert.NotNull(plan);
+
+        // Step 3: Create workout day
+        var dayResponse = await client.PostAsJsonAsync(
+            $"/api/admin/workout-plans/{plan.Id}/days",
+            new CreateWorkoutPlanDayRequest
+            {
+                DayNumber = 1,
+                Name = "Chest Workout",
+                Description = "Chest training",
+                IsRestDay = false,
+                EstimatedDurationMinutes = 60
+            });
+
+        Assert.Equal(HttpStatusCode.Created, dayResponse.StatusCode);
+
+        var day = await dayResponse.Content
+            .ReadFromJsonAsync<WorkoutPlanDayResponse>();
+
+        Assert.NotNull(day);
+
+        // Step 4: Create exercise
+        var exerciseResponse = await client.PostAsJsonAsync(
+            "/api/exercises",
+            new SaveExerciseRequest
+            {
+                Code = $"REVIEW-EX-{Guid.NewGuid():N}",
+                Name = "Review Restriction Exercise",
+                Description = "Exercise for review restriction testing",
+                MuscleGroup = "Chest",
+                Equipment = "Dumbbell",
+                DifficultyLevel = "Beginner",
+                TrainingLocation = "Gym",
+                Instructions = "Perform controlled repetitions."
+            });
+
+        Assert.Equal(HttpStatusCode.Created, exerciseResponse.StatusCode);
+
+        var exercise = await exerciseResponse.Content
+            .ReadFromJsonAsync<ExerciseResponse>();
+
+        Assert.NotNull(exercise);
+
+        // Step 5: Assign exercise
+        var assignmentResponse = await client.PostAsJsonAsync(
+            $"/api/admin/workout-plans/{plan.Id}/days/{day.Id}/exercises",
+            new AddWorkoutPlanExerciseRequest
+            {
+                ExerciseId = exercise.Id,
+                ExerciseOrder = 1,
+                Sets = 3,
+                Reps = 12,
+                RestSeconds = 60
+            });
+
+        Assert.Equal(HttpStatusCode.Created, assignmentResponse.StatusCode);
+
+        var assignment = await assignmentResponse.Content
+            .ReadFromJsonAsync<WorkoutPlanExerciseResponse>();
+
+        Assert.NotNull(assignment);
+
+        // Step 6: Submit workout plan for review
+        var submitResponse = await client.PostAsync(
+            $"/api/admin/workout-plans/{plan.Id}/submit-for-review",
+            null);
+
+        Assert.True(
+            submitResponse.IsSuccessStatusCode,
+            await submitResponse.Content.ReadAsStringAsync());
+
+        // Step 7: Verify plan is In Review
+        var reviewPlan = await client
+            .GetFromJsonAsync<WorkoutPlanDetailResponse>(
+                $"/api/admin/workout-plans/{plan.Id}");
+
+        Assert.NotNull(reviewPlan);
+        Assert.Equal("In Review", reviewPlan.ReviewStatus);
+
+        // Step 8: Approve workout plan
+        var approveResponse = await client.PostAsync(
+            $"/api/admin/workout-plans/{plan.Id}/approve",
+            null);
+
+        Assert.True(
+            approveResponse.IsSuccessStatusCode,
+            await approveResponse.Content.ReadAsStringAsync());
+
+        // Verify workout plan is Approved
+        var approvedPlan = await client
+            .GetFromJsonAsync<WorkoutPlanDetailResponse>(
+                $"/api/admin/workout-plans/{plan.Id}");
+
+        Assert.NotNull(approvedPlan);
+        Assert.Equal("Approved", approvedPlan.ReviewStatus);
+
+        // Deactivate the workout plan
+        var deactivateResponse = await client.PatchAsync(
+            $"/api/admin/workout-plans/{plan.Id}/deactivate",
+            null);
+
+        Assert.True(
+            deactivateResponse.IsSuccessStatusCode,
+            await deactivateResponse.Content.ReadAsStringAsync());
+
+        // Verify the plan is inactive
+        var inactivePlan = await client
+            .GetFromJsonAsync<WorkoutPlanDetailResponse>(
+                $"/api/admin/workout-plans/{plan.Id}");
+
+        Assert.NotNull(inactivePlan);
+        Assert.False(inactivePlan.IsActive);
+
+        // Step 8: Attempt to update exercise assignment
+        var updateResponse = await client.PutAsJsonAsync(
+            $"/api/admin/workout-plans/{plan.Id}/days/{day.Id}/exercises/{assignment.Id}",
+            new UpdateWorkoutPlanExerciseRequest
+            {
+                ExerciseId = exercise.Id,
+                ExerciseOrder = 1,
+                Sets = 5,
+                Reps = 15,
+                RestSeconds = 90,
+                Notes = "This update should be rejected"
+            });
+
+        // Step 9: Verify update is blocked
+        Assert.Equal(HttpStatusCode.Conflict, updateResponse.StatusCode);
+
+        // Step 10: Verify original assignment remains unchanged
+        var savedPlan = await client
+            .GetFromJsonAsync<WorkoutPlanDetailResponse>(
+                $"/api/admin/workout-plans/{plan.Id}");
+
+        Assert.NotNull(savedPlan);
+
+        var savedDay = Assert.Single(savedPlan.Days);
+        var savedAssignment = Assert.Single(savedDay.Exercises);
+
+        Assert.Equal(assignment.Id, savedAssignment.Id);
+        Assert.Equal(3, savedAssignment.Sets);
+        Assert.Equal(12, savedAssignment.Reps);
+        Assert.Equal(60, savedAssignment.RestSeconds);
+    }
+
+    [Fact]
+    public async Task Admin_CannotUpdateWorkoutPlanExercise_WithDuplicateOrder()
+    {
+        using var factory = new FitnessPlatformWebApplicationFactory();
+
+        await TestIdentitySeeder.SeedAsync(factory.Services);
+
+        using var client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions
+            {
+                AllowAutoRedirect = false
+            });
+
+        // Step 1: Authenticate as Admin
+        var loginResponse = await client.PostAsJsonAsync(
+            "/api/auth/login",
+            new
+            {
+                Email = TestIdentitySeeder.AdminEmail,
+                Password = TestIdentitySeeder.TestPassword
+            });
+
+        Assert.Equal(HttpStatusCode.OK, loginResponse.StatusCode);
+
+        var login = await loginResponse.Content
+            .ReadFromJsonAsync<LoginTestResponse>();
+
+        Assert.NotNull(login);
+
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", login.AccessToken);
+
+        // Step 2: Create workout plan
+        var planResponse = await client.PostAsJsonAsync(
+            "/api/admin/workout-plans",
+            new CreateWorkoutPlanRequest
+            {
+                Name = $"Duplicate Order Test {Guid.NewGuid():N}",
+                GoalCode = "WEIGHT_LOSS",
+                ExperienceLevel = "Beginner",
+                TrainingLocation = "Gym",
+                DaysPerWeek = 3,
+                DurationWeeks = 12
+            });
+
+        Assert.Equal(HttpStatusCode.Created, planResponse.StatusCode);
+
+        var plan = await planResponse.Content
+            .ReadFromJsonAsync<WorkoutPlanResponse>();
+
+        Assert.NotNull(plan);
+
+        // Step 3: Create workout day
+        var dayResponse = await client.PostAsJsonAsync(
+            $"/api/admin/workout-plans/{plan.Id}/days",
+            new CreateWorkoutPlanDayRequest
+            {
+                DayNumber = 1,
+                Name = "Chest Workout",
+                Description = "Duplicate exercise order validation",
+                IsRestDay = false,
+                EstimatedDurationMinutes = 60
+            });
+
+        Assert.Equal(HttpStatusCode.Created, dayResponse.StatusCode);
+
+        var day = await dayResponse.Content
+            .ReadFromJsonAsync<WorkoutPlanDayResponse>();
+
+        Assert.NotNull(day);
+
+        // Step 4: Create exercise
+        var exerciseResponse = await client.PostAsJsonAsync(
+            "/api/exercises",
+            new SaveExerciseRequest
+            {
+                Code = $"DUP-ORDER-{Guid.NewGuid():N}",
+                Name = "Duplicate Order Test Exercise",
+                Description = "Exercise for duplicate order validation",
+                MuscleGroup = "Chest",
+                Equipment = "Dumbbell",
+                DifficultyLevel = "Beginner",
+                TrainingLocation = "Gym",
+                Instructions = "Perform controlled repetitions."
+            });
+
+        Assert.Equal(HttpStatusCode.Created, exerciseResponse.StatusCode);
+
+        var exercise = await exerciseResponse.Content
+            .ReadFromJsonAsync<ExerciseResponse>();
+
+        Assert.NotNull(exercise);
+
+        // Step 5: Assign first exercise with order 1
+        var firstAssignmentResponse = await client.PostAsJsonAsync(
+            $"/api/admin/workout-plans/{plan.Id}/days/{day.Id}/exercises",
+            new AddWorkoutPlanExerciseRequest
+            {
+                ExerciseId = exercise.Id,
+                ExerciseOrder = 1,
+                Sets = 3,
+                Reps = 12,
+                RestSeconds = 60
+            });
+
+        Assert.Equal(
+            HttpStatusCode.Created,
+            firstAssignmentResponse.StatusCode);
+
+        var firstAssignment = await firstAssignmentResponse.Content
+            .ReadFromJsonAsync<WorkoutPlanExerciseResponse>();
+
+        Assert.NotNull(firstAssignment);
+
+        // Step 6: Assign second exercise with order 2
+        var secondAssignmentResponse = await client.PostAsJsonAsync(
+            $"/api/admin/workout-plans/{plan.Id}/days/{day.Id}/exercises",
+            new AddWorkoutPlanExerciseRequest
+            {
+                ExerciseId = exercise.Id,
+                ExerciseOrder = 2,
+                Sets = 4,
+                Reps = 10,
+                RestSeconds = 90
+            });
+
+        Assert.Equal(
+            HttpStatusCode.Created,
+            secondAssignmentResponse.StatusCode);
+
+        var secondAssignment = await secondAssignmentResponse.Content
+            .ReadFromJsonAsync<WorkoutPlanExerciseResponse>();
+
+        Assert.NotNull(secondAssignment);
+
+        // Step 7: Attempt to change second assignment order to 1
+        var updateResponse = await client.PutAsJsonAsync(
+            $"/api/admin/workout-plans/{plan.Id}/days/{day.Id}/exercises/{secondAssignment.Id}",
+            new UpdateWorkoutPlanExerciseRequest
+            {
+                ExerciseId = exercise.Id,
+                ExerciseOrder = 1,
+                Sets = 5,
+                Reps = 15,
+                RestSeconds = 120,
+                Notes = "Duplicate order attempt"
+            });
+
+        // Step 8: Verify duplicate order is rejected
+        Assert.Equal(HttpStatusCode.Conflict, updateResponse.StatusCode);
+
+        // Step 9: Retrieve workout plan again
+        var savedPlan = await client
+            .GetFromJsonAsync<WorkoutPlanDetailResponse>(
+                $"/api/admin/workout-plans/{plan.Id}");
+
+        Assert.NotNull(savedPlan);
+
+        var savedDay = Assert.Single(savedPlan.Days);
+
+        Assert.Equal(2, savedDay.Exercises.Count);
+
+        // Step 10: Verify original exercise orders remain unchanged
+        var savedFirstAssignment = Assert.Single(
+            savedDay.Exercises,
+            e => e.Id == firstAssignment.Id);
+
+        var savedSecondAssignment = Assert.Single(
+            savedDay.Exercises,
+            e => e.Id == secondAssignment.Id);
+
+        Assert.Equal(1, savedFirstAssignment.ExerciseOrder);
+        Assert.Equal(2, savedSecondAssignment.ExerciseOrder);
+
+        Assert.Equal(4, savedSecondAssignment.Sets);
+        Assert.Equal(10, savedSecondAssignment.Reps);
+        Assert.Equal(90, savedSecondAssignment.RestSeconds);
+    }
+
+    [Theory]
+    [InlineData(0, 3, 12, 60, null)]
+    [InlineData(-1, 3, 12, 60, null)]
+    [InlineData(1, 0, 12, 60, null)]
+    [InlineData(1, 21, 12, 60, null)]
+    [InlineData(1, 3, -1, 60, null)]
+    [InlineData(1, 3, 501, 60, null)]
+    [InlineData(1, 3, 12, -1, null)]
+    [InlineData(1, 3, 12, 3601, null)]
+    [InlineData(1, 3, 12, 60, 0)]
+    [InlineData(1, 3, 12, 60, 14401)]
+    public async Task Admin_CannotUpdateWorkoutPlanExercise_WithInvalidNumericValues(
+    int exerciseOrder,
+    int sets,
+    int reps,
+    int restSeconds,
+    int? durationSeconds)
+    {
+        using var factory = new FitnessPlatformWebApplicationFactory();
+
+        await TestIdentitySeeder.SeedAsync(factory.Services);
+
+        using var client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions
+            {
+                AllowAutoRedirect = false
+            });
+
+        // Step 1: Authenticate as Admin
+        var loginResponse = await client.PostAsJsonAsync(
+            "/api/auth/login",
+            new
+            {
+                Email = TestIdentitySeeder.AdminEmail,
+                Password = TestIdentitySeeder.TestPassword
+            });
+
+        Assert.Equal(HttpStatusCode.OK, loginResponse.StatusCode);
+
+        var login = await loginResponse.Content
+            .ReadFromJsonAsync<LoginTestResponse>();
+
+        Assert.NotNull(login);
+
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", login.AccessToken);
+
+        // Step 2: Create workout plan
+        var planResponse = await client.PostAsJsonAsync(
+            "/api/admin/workout-plans",
+            new CreateWorkoutPlanRequest
+            {
+                Name = $"Numeric Validation {Guid.NewGuid():N}",
+                GoalCode = "WEIGHT_LOSS",
+                ExperienceLevel = "Beginner",
+                TrainingLocation = "Gym",
+                DaysPerWeek = 3,
+                DurationWeeks = 12
+            });
+
+        Assert.Equal(HttpStatusCode.Created, planResponse.StatusCode);
+
+        var plan = await planResponse.Content
+            .ReadFromJsonAsync<WorkoutPlanResponse>();
+
+        Assert.NotNull(plan);
+
+        // Step 3: Create workout day
+        var dayResponse = await client.PostAsJsonAsync(
+            $"/api/admin/workout-plans/{plan.Id}/days",
+            new CreateWorkoutPlanDayRequest
+            {
+                DayNumber = 1,
+                Name = "Validation Workout",
+                Description = "Exercise assignment validation",
+                IsRestDay = false,
+                EstimatedDurationMinutes = 60
+            });
+
+        Assert.Equal(HttpStatusCode.Created, dayResponse.StatusCode);
+
+        var day = await dayResponse.Content
+            .ReadFromJsonAsync<WorkoutPlanDayResponse>();
+
+        Assert.NotNull(day);
+
+        // Step 4: Create Exercise Master record
+        var exerciseResponse = await client.PostAsJsonAsync(
+            "/api/exercises",
+            new SaveExerciseRequest
+            {
+                Code = $"NUM-VAL-{Guid.NewGuid():N}",
+                Name = "Numeric Validation Exercise",
+                Description = "Exercise for validation testing",
+                MuscleGroup = "Chest",
+                Equipment = "Dumbbell",
+                DifficultyLevel = "Beginner",
+                TrainingLocation = "Gym",
+                Instructions = "Perform controlled repetitions."
+            });
+
+        Assert.Equal(HttpStatusCode.Created, exerciseResponse.StatusCode);
+
+        var exercise = await exerciseResponse.Content
+            .ReadFromJsonAsync<ExerciseResponse>();
+
+        Assert.NotNull(exercise);
+
+        // Step 5: Create valid exercise assignment
+        var assignmentResponse = await client.PostAsJsonAsync(
+            $"/api/admin/workout-plans/{plan.Id}/days/{day.Id}/exercises",
+            new AddWorkoutPlanExerciseRequest
+            {
+                ExerciseId = exercise.Id,
+                ExerciseOrder = 1,
+                Sets = 3,
+                Reps = 12,
+                RestSeconds = 60,
+                Notes = "Original assignment"
+            });
+
+        Assert.Equal(HttpStatusCode.Created, assignmentResponse.StatusCode);
+
+        var assignment = await assignmentResponse.Content
+            .ReadFromJsonAsync<WorkoutPlanExerciseResponse>();
+
+        Assert.NotNull(assignment);
+
+        // Step 6: Attempt update with invalid numeric values
+        var updateResponse = await client.PutAsJsonAsync(
+            $"/api/admin/workout-plans/{plan.Id}/days/{day.Id}/exercises/{assignment.Id}",
+            new UpdateWorkoutPlanExerciseRequest
+            {
+                ExerciseId = exercise.Id,
+                ExerciseOrder = exerciseOrder,
+                Sets = sets,
+                Reps = reps,
+                RestSeconds = restSeconds,
+                DurationSeconds = durationSeconds,
+                Notes = "Invalid numeric update"
+            });
+
+        // Step 7: Verify validation rejects the request
+        Assert.Equal(HttpStatusCode.BadRequest, updateResponse.StatusCode);
+
+        // Step 8: Verify original assignment remains unchanged
+        var savedPlan = await client
+            .GetFromJsonAsync<WorkoutPlanDetailResponse>(
+                $"/api/admin/workout-plans/{plan.Id}");
+
+        Assert.NotNull(savedPlan);
+
+        var savedDay = Assert.Single(savedPlan.Days);
+        var savedAssignment = Assert.Single(savedDay.Exercises);
+
+        Assert.Equal(assignment.Id, savedAssignment.Id);
+        Assert.Equal(exercise.Id, savedAssignment.ExerciseId);
+        Assert.Equal(1, savedAssignment.ExerciseOrder);
+        Assert.Equal(3, savedAssignment.Sets);
+        Assert.Equal(12, savedAssignment.Reps);
+        Assert.Equal(60, savedAssignment.RestSeconds);
+        Assert.Null(savedAssignment.DurationSeconds);
+        Assert.Equal("Original assignment", savedAssignment.Notes);
+    }
+
+    [Theory]
+    [InlineData("Plan")]
+    [InlineData("Day")]
+    [InlineData("Assignment")]
+    public async Task Admin_CannotUpdateWorkoutPlanExercise_WithMissingIds(
+    string missingEntity)
+    {
+        using var factory = new FitnessPlatformWebApplicationFactory();
+
+        await TestIdentitySeeder.SeedAsync(factory.Services);
+
+        using var client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions
+            {
+                AllowAutoRedirect = false
+            });
+
+        // Step 1: Authenticate as Admin
+        var loginResponse = await client.PostAsJsonAsync(
+            "/api/auth/login",
+            new
+            {
+                Email = TestIdentitySeeder.AdminEmail,
+                Password = TestIdentitySeeder.TestPassword
+            });
+
+        Assert.Equal(HttpStatusCode.OK, loginResponse.StatusCode);
+
+        var login = await loginResponse.Content
+            .ReadFromJsonAsync<LoginTestResponse>();
+
+        Assert.NotNull(login);
+
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", login.AccessToken);
+
+        // Step 2: Create workout plan
+        var planResponse = await client.PostAsJsonAsync(
+            "/api/admin/workout-plans",
+            new CreateWorkoutPlanRequest
+            {
+                Name = $"Missing ID Test {Guid.NewGuid():N}",
+                GoalCode = "WEIGHT_LOSS",
+                ExperienceLevel = "Beginner",
+                TrainingLocation = "Gym",
+                DaysPerWeek = 3,
+                DurationWeeks = 12
+            });
+
+        Assert.Equal(HttpStatusCode.Created, planResponse.StatusCode);
+
+        var plan = await planResponse.Content
+            .ReadFromJsonAsync<WorkoutPlanResponse>();
+
+        Assert.NotNull(plan);
+
+        // Step 3: Create workout day
+        var dayResponse = await client.PostAsJsonAsync(
+            $"/api/admin/workout-plans/{plan.Id}/days",
+            new CreateWorkoutPlanDayRequest
+            {
+                DayNumber = 1,
+                Name = "Missing ID Test Day",
+                Description = "Testing invalid identifiers",
+                IsRestDay = false,
+                EstimatedDurationMinutes = 60
+            });
+
+        Assert.Equal(HttpStatusCode.Created, dayResponse.StatusCode);
+
+        var day = await dayResponse.Content
+            .ReadFromJsonAsync<WorkoutPlanDayResponse>();
+
+        Assert.NotNull(day);
+
+        // Step 4: Create exercise
+        var exerciseResponse = await client.PostAsJsonAsync(
+            "/api/exercises",
+            new SaveExerciseRequest
+            {
+                Code = $"MISS-ID-{Guid.NewGuid():N}",
+                Name = "Missing ID Test Exercise",
+                Description = "Exercise for missing ID validation",
+                MuscleGroup = "Chest",
+                Equipment = "Dumbbell",
+                DifficultyLevel = "Beginner",
+                TrainingLocation = "Gym",
+                Instructions = "Perform controlled repetitions."
+            });
+
+        Assert.Equal(HttpStatusCode.Created, exerciseResponse.StatusCode);
+
+        var exercise = await exerciseResponse.Content
+            .ReadFromJsonAsync<ExerciseResponse>();
+
+        Assert.NotNull(exercise);
+
+        // Step 5: Create valid assignment
+        var assignmentResponse = await client.PostAsJsonAsync(
+            $"/api/admin/workout-plans/{plan.Id}/days/{day.Id}/exercises",
+            new AddWorkoutPlanExerciseRequest
+            {
+                ExerciseId = exercise.Id,
+                ExerciseOrder = 1,
+                Sets = 3,
+                Reps = 12,
+                RestSeconds = 60,
+                Notes = "Original assignment"
+            });
+
+        Assert.Equal(HttpStatusCode.Created, assignmentResponse.StatusCode);
+
+        var assignment = await assignmentResponse.Content
+            .ReadFromJsonAsync<WorkoutPlanExerciseResponse>();
+
+        Assert.NotNull(assignment);
+
+        // Step 6: Replace one identifier with a nonexistent ID
+        var requestPlanId = missingEntity == "Plan"
+            ? Guid.NewGuid()
+            : plan.Id;
+
+        var requestDayId = missingEntity == "Day"
+            ? Guid.NewGuid()
+            : day.Id;
+
+        var requestAssignmentId = missingEntity == "Assignment"
+            ? Guid.NewGuid()
+            : assignment.Id;
+
+        // Step 7: Attempt update
+        var updateResponse = await client.PutAsJsonAsync(
+            $"/api/admin/workout-plans/{requestPlanId}/days/{requestDayId}/exercises/{requestAssignmentId}",
+            new UpdateWorkoutPlanExerciseRequest
+            {
+                ExerciseId = exercise.Id,
+                ExerciseOrder = 2,
+                Sets = 5,
+                Reps = 15,
+                RestSeconds = 90,
+                Notes = "This update should not be saved"
+            });
+
+        // Step 8: Verify 404 Not Found
+        Assert.Equal(HttpStatusCode.NotFound, updateResponse.StatusCode);
+
+        // Step 9: Retrieve original workout plan
+        var savedPlan = await client
+            .GetFromJsonAsync<WorkoutPlanDetailResponse>(
+                $"/api/admin/workout-plans/{plan.Id}");
+
+        Assert.NotNull(savedPlan);
+
+        var savedDay = Assert.Single(savedPlan.Days);
+        var savedAssignment = Assert.Single(savedDay.Exercises);
+
+        // Step 10: Verify original assignment remains unchanged
+        Assert.Equal(assignment.Id, savedAssignment.Id);
+        Assert.Equal(exercise.Id, savedAssignment.ExerciseId);
+        Assert.Equal(1, savedAssignment.ExerciseOrder);
+        Assert.Equal(3, savedAssignment.Sets);
+        Assert.Equal(12, savedAssignment.Reps);
+        Assert.Equal(60, savedAssignment.RestSeconds);
+        Assert.Equal("Original assignment", savedAssignment.Notes);
+    }
+
+
+
+    [Theory]
+    [InlineData("WrongPlan")]
+    [InlineData("WrongDay")]
+    [InlineData("WrongPlanAndDay")]
+    public async Task Admin_CannotUpdateWorkoutPlanExercise_WithIncorrectOwnership(string scenario)
+    {
+        using var factory = new FitnessPlatformWebApplicationFactory();
+
+        await TestIdentitySeeder.SeedAsync(factory.Services);
+
+        using var client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions
+            {
+                AllowAutoRedirect = false
+            });
+
+        // Step 1: Authenticate as Admin
+        var loginResponse = await client.PostAsJsonAsync(
+            "/api/auth/login",
+            new
+            {
+                Email = TestIdentitySeeder.AdminEmail,
+                Password = TestIdentitySeeder.TestPassword
+            });
+
+        Assert.Equal(HttpStatusCode.OK, loginResponse.StatusCode);
+
+        var login = await loginResponse.Content
+            .ReadFromJsonAsync<LoginTestResponse>();
+
+        Assert.NotNull(login);
+
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", login.AccessToken);
+
+        // Step 2: Create workout plan
+        var planResponse = await client.PostAsJsonAsync(
+            "/api/admin/workout-plans",
+            new CreateWorkoutPlanRequest
+            {
+                Name = $"Missing ID Test {Guid.NewGuid():N}",
+                GoalCode = "WEIGHT_LOSS",
+                ExperienceLevel = "Beginner",
+                TrainingLocation = "Gym",
+                DaysPerWeek = 3,
+                DurationWeeks = 12
+            });
+
+        Assert.Equal(HttpStatusCode.Created, planResponse.StatusCode);
+
+        var plan = await planResponse.Content
+            .ReadFromJsonAsync<WorkoutPlanResponse>();
+
+        Assert.NotNull(plan);
+
+        // Step 3: Create workout day
+        var dayResponse = await client.PostAsJsonAsync(
+            $"/api/admin/workout-plans/{plan.Id}/days",
+            new CreateWorkoutPlanDayRequest
+            {
+                DayNumber = 1,
+                Name = "Missing ID Test Day",
+                Description = "Testing invalid identifiers",
+                IsRestDay = false,
+                EstimatedDurationMinutes = 60
+            });
+
+        Assert.Equal(HttpStatusCode.Created, dayResponse.StatusCode);
+
+        var day = await dayResponse.Content
+            .ReadFromJsonAsync<WorkoutPlanDayResponse>();
+
+        Assert.NotNull(day);
+
+        // Step 4: Create exercise
+        var exerciseResponse = await client.PostAsJsonAsync(
+            "/api/exercises",
+            new SaveExerciseRequest
+            {
+                Code = $"MISS-ID-{Guid.NewGuid():N}",
+                Name = "Missing ID Test Exercise",
+                Description = "Exercise for missing ID validation",
+                MuscleGroup = "Chest",
+                Equipment = "Dumbbell",
+                DifficultyLevel = "Beginner",
+                TrainingLocation = "Gym",
+                Instructions = "Perform controlled repetitions."
+            });
+
+        Assert.Equal(HttpStatusCode.Created, exerciseResponse.StatusCode);
+
+        var exercise = await exerciseResponse.Content
+            .ReadFromJsonAsync<ExerciseResponse>();
+
+        Assert.NotNull(exercise);
+
+        // Step 5: Create valid assignment
+        var assignmentResponse = await client.PostAsJsonAsync(
+            $"/api/admin/workout-plans/{plan.Id}/days/{day.Id}/exercises",
+            new AddWorkoutPlanExerciseRequest
+            {
+                ExerciseId = exercise.Id,
+                ExerciseOrder = 1,
+                Sets = 3,
+                Reps = 12,
+                RestSeconds = 60,
+                Notes = "Original assignment"
+            });
+
+        Assert.Equal(HttpStatusCode.Created, assignmentResponse.StatusCode);
+
+        var assignment = await assignmentResponse.Content
+            .ReadFromJsonAsync<WorkoutPlanExerciseResponse>();
+
+        Assert.NotNull(assignment);
+
+        // Step 6: Create another workout plan
+        var otherPlanResponse = await client.PostAsJsonAsync(
+            "/api/admin/workout-plans",
+            new CreateWorkoutPlanRequest
+            {
+                Name = $"Other Plan {Guid.NewGuid():N}",
+                GoalCode = "WEIGHT_LOSS",
+                ExperienceLevel = "Beginner",
+                TrainingLocation = "Gym",
+                DaysPerWeek = 3,
+                DurationWeeks = 12
+            });
+
+        Assert.Equal(HttpStatusCode.Created, otherPlanResponse.StatusCode);
+
+        var otherPlan = await otherPlanResponse.Content
+            .ReadFromJsonAsync<WorkoutPlanResponse>();
+
+        Assert.NotNull(otherPlan);
+
+        // Step 7: Create another day in the original plan
+        var otherDayResponse = await client.PostAsJsonAsync(
+            $"/api/admin/workout-plans/{plan.Id}/days",
+            new CreateWorkoutPlanDayRequest
+            {
+                DayNumber = 2,
+                Name = "Second Workout Day",
+                Description = "Ownership validation",
+                IsRestDay = false,
+                EstimatedDurationMinutes = 60
+            });
+
+        Assert.Equal(HttpStatusCode.Created, otherDayResponse.StatusCode);
+
+        var otherDay = await otherDayResponse.Content
+            .ReadFromJsonAsync<WorkoutPlanDayResponse>();
+
+        Assert.NotNull(otherDay);
+
+        // Step 8: Create a day in the other plan
+        var otherPlanDayResponse = await client.PostAsJsonAsync(
+            $"/api/admin/workout-plans/{otherPlan.Id}/days",
+            new CreateWorkoutPlanDayRequest
+            {
+                DayNumber = 1,
+                Name = "Other Plan Workout Day",
+                Description = "Cross-plan ownership validation",
+                IsRestDay = false,
+                EstimatedDurationMinutes = 60
+            });
+
+        Assert.Equal(HttpStatusCode.Created, otherPlanDayResponse.StatusCode);
+
+        var otherPlanDay = await otherPlanDayResponse.Content
+            .ReadFromJsonAsync<WorkoutPlanDayResponse>();
+
+        Assert.NotNull(otherPlanDay);
+
+        // Step 9: Select identifiers based on ownership scenario
+        var requestPlanId = scenario switch
+        {
+            "WrongPlan" => otherPlan.Id,
+            "WrongDay" => plan.Id,
+            "WrongPlanAndDay" => otherPlan.Id,
+            _ => throw new ArgumentOutOfRangeException(nameof(scenario))
+        };
+
+        var requestDayId = scenario switch
+        {
+            "WrongPlan" => day.Id,
+            "WrongDay" => otherDay.Id,
+            "WrongPlanAndDay" => otherPlanDay.Id,
+            _ => throw new ArgumentOutOfRangeException(nameof(scenario))
+        };
+
+        var requestAssignmentId = assignment.Id;
+
+        // Step 10: Attempt to update assignment using incorrect ownership
+        var updateResponse = await client.PutAsJsonAsync(
+            $"/api/admin/workout-plans/{requestPlanId}/days/{requestDayId}/exercises/{requestAssignmentId}",
+            new UpdateWorkoutPlanExerciseRequest
+            {
+                ExerciseId = exercise.Id,
+                ExerciseOrder = 2,
+                Sets = 5,
+                Reps = 15,
+                RestSeconds = 90,
+                Notes = "This update should not be saved"
+            });
+
+        // Step 11: Verify update is rejected
+        Assert.Equal(HttpStatusCode.NotFound, updateResponse.StatusCode);
+
+        // Step 12: Retrieve original workout plan
+        var savedPlan = await client
+            .GetFromJsonAsync<WorkoutPlanDetailResponse>(
+                $"/api/admin/workout-plans/{plan.Id}");
+
+        Assert.NotNull(savedPlan);
+
+        // Original workout plan contains two days
+        Assert.Equal(2, savedPlan.Days.Count);
+
+        // Find the original workout day
+        var savedDay = Assert.Single(
+            savedPlan.Days,
+            d => d.Id == day.Id);
+
+        // Find the original exercise assignment
+        var savedAssignment = Assert.Single(savedDay.Exercises);
+
+        // Step 13: Verify original assignment remains unchanged
+        Assert.Equal(assignment.Id, savedAssignment.Id);
+        Assert.Equal(exercise.Id, savedAssignment.ExerciseId);
+        Assert.Equal(1, savedAssignment.ExerciseOrder);
+        Assert.Equal(3, savedAssignment.Sets);
+        Assert.Equal(12, savedAssignment.Reps);
+        Assert.Equal(60, savedAssignment.RestSeconds);
+        Assert.Equal("Original assignment", savedAssignment.Notes);
+
+        // Step 10: Verify original assignment remains unchanged
+        Assert.Equal(assignment.Id, savedAssignment.Id);
+        Assert.Equal(exercise.Id, savedAssignment.ExerciseId);
+        Assert.Equal(1, savedAssignment.ExerciseOrder);
+        Assert.Equal(3, savedAssignment.Sets);
+        Assert.Equal(12, savedAssignment.Reps);
+        Assert.Equal(60, savedAssignment.RestSeconds);
+        Assert.Equal("Original assignment", savedAssignment.Notes);
+    }
+    [Fact]
+    public async Task UnauthenticatedUser_CannotUpdateWorkoutPlanExercise()
+    {
+        using var factory = new FitnessPlatformWebApplicationFactory();
+
+        await TestIdentitySeeder.SeedAsync(factory.Services);
+
+        using var client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions
+            {
+                AllowAutoRedirect = false
+            });
+
+        // Step 1: Create an update request without authentication
+        var updateRequest = new UpdateWorkoutPlanExerciseRequest
+        {
+            ExerciseId = Guid.NewGuid(),
+            ExerciseOrder = 1,
+            Sets = 3,
+            Reps = 12,
+            RestSeconds = 60,
+            Notes = "Unauthorized update attempt"
+        };
+
+        // Step 2: Attempt to update an exercise assignment
+        // No JWT token is provided
+        var updateResponse = await client.PutAsJsonAsync(
+            $"/api/admin/workout-plans/{Guid.NewGuid()}/days/{Guid.NewGuid()}/exercises/{Guid.NewGuid()}",
+            updateRequest);
+
+        // Step 3: Verify authentication is required
+        Assert.Equal(
+            HttpStatusCode.Unauthorized,
+            updateResponse.StatusCode);
+    }
+    [Fact]
+    public async Task Member_CannotUpdateWorkoutPlanExercise()
+    {
+        using var factory = new FitnessPlatformWebApplicationFactory();
+
+        await TestIdentitySeeder.SeedAsync(factory.Services);
+
+        using var client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions
+            {
+                AllowAutoRedirect = false
+            });
+
+        // Step 1: Authenticate as Member
+        var loginResponse = await client.PostAsJsonAsync(
+            "/api/auth/login",
+            new
+            {
+                Email = TestIdentitySeeder.Member1Email,
+                Password = TestIdentitySeeder.TestPassword
+            });
+
+        Assert.Equal(
+            HttpStatusCode.OK,
+            loginResponse.StatusCode);
+
+        var login = await loginResponse.Content
+            .ReadFromJsonAsync<LoginTestResponse>();
+
+        Assert.NotNull(login);
+
+        // Step 2: Set Member JWT token
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue(
+                "Bearer",
+                login.AccessToken);
+
+        // Step 3: Prepare exercise assignment update request
+        var updateRequest = new UpdateWorkoutPlanExerciseRequest
+        {
+            ExerciseId = Guid.NewGuid(),
+            ExerciseOrder = 1,
+            Sets = 3,
+            Reps = 12,
+            RestSeconds = 60,
+            Notes = "Member should not update workout assignments"
+        };
+
+        // Step 4: Attempt update using Member credentials
+        var updateResponse = await client.PutAsJsonAsync(
+            $"/api/admin/workout-plans/{Guid.NewGuid()}/days/{Guid.NewGuid()}/exercises/{Guid.NewGuid()}",
+            updateRequest);
+
+        // Step 5: Verify Member access is forbidden
+        Assert.Equal(
+            HttpStatusCode.Forbidden,
+            updateResponse.StatusCode);
+    }
 }
 
 

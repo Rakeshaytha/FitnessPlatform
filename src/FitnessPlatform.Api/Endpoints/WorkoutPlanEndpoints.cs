@@ -605,6 +605,155 @@ public static class WorkoutPlanEndpoints
         })
         .WithName("AddWorkoutPlanExercise");
 
+        // UPDATE EXERCISE ASSIGNMENT IN WORKOUT DAY
+        group.MapPut("/{planId:guid}/days/{dayId:guid}/exercises/{assignmentId:guid}", async (
+            Guid planId,
+            Guid dayId,
+            Guid assignmentId,
+            UpdateWorkoutPlanExerciseRequest request,
+            FitnessPlatformDbContext db,
+            CancellationToken cancellationToken) =>
+        {
+            // Step 1: Verify workout plan exists
+            var plan = await db.WorkoutPlans
+                .FindAsync(new object[] { planId }, cancellationToken);
+
+            if (plan is null)
+            {
+                return Results.NotFound(new
+                {
+                    Error = "Workout plan not found."
+                });
+            }
+
+            // Step 2: Verify workout plan is editable
+            if (!WorkoutPlanReviewWorkflowValidator.CanEdit(
+                    plan.ReviewStatus,
+                    plan.IsActive))
+            {
+                return Results.Conflict(new
+                {
+                    Error = "Only active Draft or Rejected workout plans can be edited."
+                });
+            }
+
+            // Step 3: Verify workout day belongs to the plan
+            var day = await db.WorkoutPlanDays
+                .FindAsync(new object[] { dayId }, cancellationToken);
+
+            if (day is null || day.WorkoutPlanId != planId)
+            {
+                return Results.NotFound(new
+                {
+                    Error = "Workout day not found in this plan."
+                });
+            }
+
+            // Step 4: Prevent exercise assignments on rest days
+            if (day.IsRestDay)
+            {
+                return Results.BadRequest(new
+                {
+                    Error = "Cannot assign exercises to a rest day."
+                });
+            }
+
+            // Step 5: Verify assignment belongs to the workout day
+            var assignment = await db.WorkoutPlanExercises
+                .FindAsync(new object[] { assignmentId }, cancellationToken);
+
+            if (assignment is null || assignment.WorkoutPlanDayId != dayId)
+            {
+                return Results.NotFound(new
+                {
+                    Error = "Exercise assignment not found in this workout day."
+                });
+            }
+
+            // Step 6: Validate request values
+            if (request.ExerciseId == Guid.Empty ||
+                request.ExerciseOrder < 1 ||
+                request.Sets < 1 ||
+                request.Sets > 20 ||
+                request.Reps < 0 ||
+                request.Reps > 500 ||
+                request.RestSeconds < 0 ||
+                request.RestSeconds > 3600 ||
+                (request.DurationSeconds.HasValue &&
+                    (request.DurationSeconds.Value < 1 ||
+                     request.DurationSeconds.Value > 14400)) ||
+                (request.Notes?.Length ?? 0) > 2000)
+            {
+                return Results.BadRequest(new
+                {
+                    Error = "Invalid exercise assignment values."
+                });
+            }
+
+            // Step 7: Verify exercise exists in Exercise Master
+            var exerciseExists =
+                await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.AnyAsync(
+                    db.Exercises,
+                    e => e.Id == request.ExerciseId,
+                    cancellationToken);
+
+            if (!exerciseExists)
+            {
+                return Results.NotFound(new
+                {
+                    Error = "Exercise not found in Exercise Master."
+                });
+            }
+
+            // Step 8: Check duplicate exercise order
+            // Exclude the assignment currently being updated
+            var orderExists =
+                await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.AnyAsync(
+                    db.WorkoutPlanExercises,
+                    e => e.WorkoutPlanDayId == dayId &&
+                         e.ExerciseOrder == request.ExerciseOrder &&
+                         e.Id != assignmentId,
+                    cancellationToken);
+
+            if (orderExists)
+            {
+                return Results.Conflict(new
+                {
+                    Error = "Exercise order already exists for this workout day."
+                });
+            }
+
+            // Step 9: Update existing assignment
+            assignment.ExerciseId = request.ExerciseId;
+            assignment.ExerciseOrder = request.ExerciseOrder;
+            assignment.Sets = request.Sets;
+            assignment.Reps = request.Reps;
+            assignment.RestSeconds = request.RestSeconds;
+            assignment.DurationSeconds = request.DurationSeconds;
+            assignment.Notes = request.Notes?.Trim() ?? string.Empty;
+
+            // Step 10: Update parent workout plan timestamp
+            plan.UpdatedAtUtc = DateTime.UtcNow;
+
+            // Step 11: Save changes
+            await db.SaveChangesAsync(cancellationToken);
+
+            // Step 12: Return updated assignment
+            return Results.Ok(new WorkoutPlanExerciseResponse
+            {
+                Id = assignment.Id,
+                WorkoutPlanDayId = assignment.WorkoutPlanDayId,
+                ExerciseId = assignment.ExerciseId,
+                ExerciseOrder = assignment.ExerciseOrder,
+                Sets = assignment.Sets,
+                Reps = assignment.Reps,
+                RestSeconds = assignment.RestSeconds,
+                DurationSeconds = assignment.DurationSeconds,
+                Notes = assignment.Notes
+            });
+        })
+        .WithName("UpdateWorkoutPlanExercise");
+
         // GET WORKOUT PLAN DETAILS WITH DAYS AND EXERCISES
         group.MapGet("/{planId:guid}", async (
             Guid planId,
