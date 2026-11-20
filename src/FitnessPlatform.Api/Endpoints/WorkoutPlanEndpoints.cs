@@ -472,6 +472,62 @@ public static class WorkoutPlanEndpoints
         })
         .WithName("UpdateWorkoutPlanDay");
 
+        // DELETE WORKOUT DAY
+        group.MapDelete("/{planId:guid}/days/{dayId:guid}", async (
+            Guid planId,
+            Guid dayId,
+            FitnessPlatformDbContext db,
+            CancellationToken cancellationToken) =>
+        {
+            // Step 1: Verify workout plan exists
+            var plan = await db.WorkoutPlans
+                .FindAsync(new object[] { planId }, cancellationToken);
+
+            if (plan is null)
+            {
+                return Results.NotFound(new
+                {
+                    Error = "Workout plan not found."
+                });
+            }
+
+            // Step 2: Verify workout plan can be edited
+            if (!WorkoutPlanReviewWorkflowValidator.CanEdit(
+                    plan.ReviewStatus,
+                    plan.IsActive))
+            {
+                return Results.Conflict(new
+                {
+                    Error = "Only active Draft or Rejected workout plans can be edited."
+                });
+            }
+
+            // Step 3: Verify workout day exists and belongs to plan
+            var day = await db.WorkoutPlanDays
+                .FindAsync(new object[] { dayId }, cancellationToken);
+
+            if (day is null || day.WorkoutPlanId != planId)
+            {
+                return Results.NotFound(new
+                {
+                    Error = "Workout day not found."
+                });
+            }
+
+            // Step 4: Delete workout day
+            // Related exercise assignments are deleted through EF Core cascade behavior.
+            db.WorkoutPlanDays.Remove(day);
+
+            // Step 5: Update parent workout plan timestamp
+            plan.UpdatedAtUtc = DateTime.UtcNow;
+
+            await db.SaveChangesAsync(cancellationToken);
+
+            // Step 6: Return successful deletion
+            return Results.NoContent();
+        })
+        .WithName("DeleteWorkoutPlanDay");
+
         // ADD EXERCISE TO WORKOUT DAY
         group.MapPost("/{planId:guid}/days/{dayId:guid}/exercises", async (
             Guid planId,
