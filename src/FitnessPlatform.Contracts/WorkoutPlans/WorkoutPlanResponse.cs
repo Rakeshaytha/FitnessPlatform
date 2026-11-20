@@ -22,6 +22,7 @@ public class WorkoutPlanResponse
     public bool IsActive { get; set; }
 
     public string ReviewStatus { get; set; } = string.Empty;
+
     public string? RejectionReason { get; set; }
 
     public DateTime CreatedAtUtc { get; set; }

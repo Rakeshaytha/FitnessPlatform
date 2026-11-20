@@ -108,7 +108,143 @@ public static class WorkoutPlanEndpoints
         })
         .WithName("CreateWorkoutPlan");
 
+        // UPDATE WORKOUT PLAN
+        group.MapPut("/{planId:guid}", async (
+            Guid planId,
+            UpdateWorkoutPlanRequest request,
+            FitnessPlatformDbContext db,
+            CancellationToken cancellationToken) =>
+        {
+            var plan = await db.WorkoutPlans
+                .FindAsync(new object[] { planId }, cancellationToken);
 
+            if (plan is null)
+            {
+                return Results.NotFound(new
+                {
+                    Error = "Workout plan not found."
+                });
+            }
+
+            if (!WorkoutPlanReviewWorkflowValidator.CanEdit(
+                    plan.ReviewStatus,
+                    plan.IsActive))
+            {
+                return Results.Conflict(new
+                {
+                    Error = "Only active Draft or Rejected workout plans can be edited."
+                });
+            }
+
+            if (request is null ||
+                string.IsNullOrWhiteSpace(request.Name) ||
+                string.IsNullOrWhiteSpace(request.GoalCode) ||
+                string.IsNullOrWhiteSpace(request.ExperienceLevel) ||
+                string.IsNullOrWhiteSpace(request.TrainingLocation))
+            {
+                return Results.BadRequest(new
+                {
+                    Error = "Name, GoalCode, ExperienceLevel and TrainingLocation are required."
+                });
+            }
+
+            if (request.Name.Trim().Length > 200 ||
+                (request.Description?.Length ?? 0) > 2000 ||
+                request.GoalCode.Trim().Length > 50 ||
+                request.ExperienceLevel.Trim().Length > 50 ||
+                request.TrainingLocation.Trim().Length > 50)
+            {
+                return Results.BadRequest(new
+                {
+                    Error = "One or more fields exceed the allowed length."
+                });
+            }
+
+            if (request.DaysPerWeek < 1 ||
+                request.DaysPerWeek > 7)
+            {
+                return Results.BadRequest(new
+                {
+                    Error = "DaysPerWeek must be between 1 and 7."
+                });
+            }
+
+            if (request.DurationWeeks < 1 ||
+                request.DurationWeeks > 52)
+            {
+                return Results.BadRequest(new
+                {
+                    Error = "DurationWeeks must be between 1 and 52."
+                });
+            }
+
+            plan.Name = request.Name.Trim();
+            plan.Description = request.Description?.Trim() ?? string.Empty;
+            plan.GoalCode = request.GoalCode.Trim();
+            plan.ExperienceLevel = request.ExperienceLevel.Trim();
+            plan.TrainingLocation = request.TrainingLocation.Trim();
+            plan.DaysPerWeek = request.DaysPerWeek;
+            plan.DurationWeeks = request.DurationWeeks;
+            plan.UpdatedAtUtc = DateTime.UtcNow;
+
+            await db.SaveChangesAsync(cancellationToken);
+
+            return Results.Ok(new WorkoutPlanResponse
+            {
+                Id = plan.Id,
+                Name = plan.Name,
+                Description = plan.Description,
+                GoalCode = plan.GoalCode,
+                ExperienceLevel = plan.ExperienceLevel,
+                TrainingLocation = plan.TrainingLocation,
+                DaysPerWeek = plan.DaysPerWeek,
+                DurationWeeks = plan.DurationWeeks,
+                IsActive = plan.IsActive,
+                ReviewStatus = plan.ReviewStatus,
+                RejectionReason = plan.RejectionReason,
+                CreatedAtUtc = plan.CreatedAtUtc,
+                UpdatedAtUtc = plan.UpdatedAtUtc
+            });
+        })
+        .WithName("UpdateWorkoutPlan");
+        // DEACTIVATE WORKOUT PLAN
+        group.MapPatch("/{planId:guid}/deactivate", async (
+            Guid planId,
+            FitnessPlatformDbContext db,
+            CancellationToken cancellationToken) =>
+        {
+            var plan = await db.WorkoutPlans
+                .FindAsync(new object[] { planId }, cancellationToken);
+
+            if (plan is null)
+            {
+                return Results.NotFound(new
+                {
+                    Error = "Workout plan not found."
+                });
+            }
+
+            if (!plan.IsActive)
+            {
+                return Results.Conflict(new
+                {
+                    Error = "Workout plan is already inactive."
+                });
+            }
+
+            plan.IsActive = false;
+            plan.UpdatedAtUtc = DateTime.UtcNow;
+
+            await db.SaveChangesAsync(cancellationToken);
+
+            return Results.Ok(new
+            {
+                plan.Id,
+                plan.IsActive,
+                plan.UpdatedAtUtc
+            });
+        })
+        .WithName("DeactivateWorkoutPlan");
 
         // ADD WORKOUT DAY
         group.MapPost("/{planId:guid}/days", async (
@@ -218,7 +354,123 @@ public static class WorkoutPlanEndpoints
         })
         .WithName("AddWorkoutPlanDay");
 
+        // UPDATE WORKOUT DAY
+        group.MapPut("/{planId:guid}/days/{dayId:guid}", async (
+            Guid planId,
+            Guid dayId,
+            UpdateWorkoutPlanDayRequest request,
+            FitnessPlatformDbContext db,
+            CancellationToken cancellationToken) =>
+        {
+            // Step 1: Verify workout plan exists
+            var plan = await db.WorkoutPlans
+                .FindAsync(new object[] { planId }, cancellationToken);
 
+            if (plan is null)
+            {
+                return Results.NotFound(new
+                {
+                    Error = "Workout plan not found."
+                });
+            }
+
+            // Step 2: Verify workout plan can be edited
+            if (!WorkoutPlanReviewWorkflowValidator.CanEdit(
+                    plan.ReviewStatus,
+                    plan.IsActive))
+            {
+                return Results.Conflict(new
+                {
+                    Error = "Only active Draft or Rejected workout plans can be edited."
+                });
+            }
+
+            // Step 3: Verify workout day exists and belongs to plan
+            var day = await db.WorkoutPlanDays
+                .FindAsync(new object[] { dayId }, cancellationToken);
+
+            if (day is null || day.WorkoutPlanId != planId)
+            {
+                return Results.NotFound(new
+                {
+                    Error = "Workout day not found."
+                });
+            }
+
+            // Step 4: Validate day number
+            if (request.DayNumber < 1 || request.DayNumber > 7)
+            {
+                return Results.BadRequest(new
+                {
+                    Error = "DayNumber must be between 1 and 7."
+                });
+            }
+
+            // Step 5: Validate name and description
+            if (string.IsNullOrWhiteSpace(request.Name) ||
+                request.Name.Trim().Length > 200 ||
+                (request.Description?.Length ?? 0) > 2000)
+            {
+                return Results.BadRequest(new
+                {
+                    Error = "Invalid workout day name or description."
+                });
+            }
+
+            // Step 6: Validate estimated duration
+            if (request.EstimatedDurationMinutes.HasValue &&
+                (request.EstimatedDurationMinutes.Value < 0 ||
+                 request.EstimatedDurationMinutes.Value > 300))
+            {
+                return Results.BadRequest(new
+                {
+                    Error = "Estimated duration must be between 0 and 300 minutes."
+                });
+            }
+
+            // Step 7: Prevent duplicate day numbers
+            var duplicateExists = await Microsoft.EntityFrameworkCore
+                .EntityFrameworkQueryableExtensions.AnyAsync(
+                    db.WorkoutPlanDays,
+                    d => d.WorkoutPlanId == planId &&
+                         d.DayNumber == request.DayNumber &&
+                         d.Id != dayId,
+                    cancellationToken);
+
+            if (duplicateExists)
+            {
+                return Results.Conflict(new
+                {
+                    Error = "This day already exists in the workout plan."
+                });
+            }
+
+            // Step 8: Update workout day
+            day.DayNumber = request.DayNumber;
+            day.Name = request.Name.Trim();
+            day.Description = request.Description?.Trim() ?? string.Empty;
+            day.IsRestDay = request.IsRestDay;
+            day.EstimatedDurationMinutes =
+                request.EstimatedDurationMinutes;
+
+            plan.UpdatedAtUtc = DateTime.UtcNow;
+
+            await db.SaveChangesAsync(cancellationToken);
+
+            // Step 9: Return updated workout day
+            return Results.Ok(new WorkoutPlanDayResponse
+            {
+                Id = day.Id,
+                WorkoutPlanId = day.WorkoutPlanId,
+                DayNumber = day.DayNumber,
+                Name = day.Name,
+                Description = day.Description,
+                IsRestDay = day.IsRestDay,
+                EstimatedDurationMinutes =
+                    day.EstimatedDurationMinutes
+            });
+        })
+        .WithName("UpdateWorkoutPlanDay");
 
         // ADD EXERCISE TO WORKOUT DAY
         group.MapPost("/{planId:guid}/days/{dayId:guid}/exercises", async (
@@ -560,17 +812,7 @@ public static class WorkoutPlanEndpoints
             }
 
 
-            if (!WorkoutPlanReviewWorkflowValidator.CanEdit(
-                    plan.ReviewStatus,
-                    plan.IsActive))
-            {
-                return Results.Conflict(new
-                {
-                    Error = "Only active Draft or Rejected workout plans can be edited."
-                });
-            }
-
-
+            
             // Step 2: Validate review status
             if (plan.ReviewStatus != "In Review")
             {
