@@ -753,6 +753,69 @@ public static class WorkoutPlanEndpoints
             });
         })
         .WithName("UpdateWorkoutPlanExercise");
+        // DELETE EXERCISE ASSIGNMENT FROM WORKOUT DAY
+        group.MapDelete("/{planId:guid}/days/{dayId:guid}/exercises/{assignmentId:guid}", async (
+            Guid planId,
+            Guid dayId,
+            Guid assignmentId,
+            FitnessPlatformDbContext db,
+            CancellationToken cancellationToken) =>
+        {
+            // Step 1: Verify workout plan exists
+            var plan = await db.WorkoutPlans
+                .FirstOrDefaultAsync(
+                    p => p.Id == planId,
+                    cancellationToken);
+
+            if (plan is null)
+            {
+                return Results.NotFound();
+            }
+
+            // Step 2: Verify workout plan is editable
+            if (!WorkoutPlanReviewWorkflowValidator.CanEdit(
+                    plan.ReviewStatus,
+                    plan.IsActive))
+            {
+                return Results.Conflict(
+                    "Workout plan cannot be modified in its current review status.");
+            }
+
+            // Step 3: Verify workout day belongs to the plan
+            var day = await db.WorkoutPlanDays
+                .FirstOrDefaultAsync(
+                    d => d.Id == dayId && d.WorkoutPlanId == planId,
+                    cancellationToken);
+
+            if (day is null)
+            {
+                return Results.NotFound();
+            }
+
+            // Step 4: Verify assignment belongs to the workout day
+            var assignment = await db.WorkoutPlanExercises
+                .FirstOrDefaultAsync(
+                    e => e.Id == assignmentId && e.WorkoutPlanDayId == dayId,
+                    cancellationToken);
+
+            if (assignment is null)
+            {
+                return Results.NotFound();
+            }
+
+            // Step 5: Delete only the workout exercise assignment
+            db.WorkoutPlanExercises.Remove(assignment);
+
+            // Step 6: Update parent workout plan timestamp
+            plan.UpdatedAtUtc = DateTime.UtcNow;
+
+            await db.SaveChangesAsync(cancellationToken);
+
+            // Step 7: Return success without response body
+            return Results.NoContent();
+        })
+        .WithName("DeleteWorkoutPlanExercise");
+
 
         // GET WORKOUT PLAN DETAILS WITH DAYS AND EXERCISES
         group.MapGet("/{planId:guid}", async (
