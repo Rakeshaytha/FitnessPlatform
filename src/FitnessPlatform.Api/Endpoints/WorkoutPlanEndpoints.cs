@@ -1561,6 +1561,122 @@ public static class WorkoutPlanEndpoints
             });
         })
         .WithName("ActivateWorkoutPlan");
+        // DUPLICATE WORKOUT PLAN
+        group.MapPost("/{planId:guid}/duplicate", async (
+            Guid planId,
+            FitnessPlatformDbContext db,
+            CancellationToken cancellationToken) =>
+        {
+            var sourcePlan = await db.WorkoutPlans
+                .AsNoTracking()
+                .FirstOrDefaultAsync(p => p.Id == planId, cancellationToken);
+
+            if (sourcePlan is null)
+            {
+                return Results.NotFound(new
+                {
+                    Error = "Workout plan not found."
+                });
+            }
+
+            var sourceDays = await db.WorkoutPlanDays
+                .AsNoTracking()
+                .Where(d => d.WorkoutPlanId == planId)
+                .OrderBy(d => d.DayNumber)
+                .ToListAsync(cancellationToken);
+
+            var sourceDayIds = sourceDays.Select(d => d.Id).ToList();
+
+            var sourceExercises = await db.WorkoutPlanExercises
+                .AsNoTracking()
+                .Where(e => sourceDayIds.Contains(e.WorkoutPlanDayId))
+                .OrderBy(e => e.ExerciseOrder)
+                .ToListAsync(cancellationToken);
+
+            var now = DateTime.UtcNow;
+
+            var duplicatePlan = new WorkoutPlan
+            {
+                Id = Guid.NewGuid(),
+                Name = sourcePlan.Name.Length > 193
+                    ? sourcePlan.Name[..193] + " (Copy)"
+                    : sourcePlan.Name + " (Copy)",
+                Description = sourcePlan.Description,
+                GoalCode = sourcePlan.GoalCode,
+                ExperienceLevel = sourcePlan.ExperienceLevel,
+                TrainingLocation = sourcePlan.TrainingLocation,
+                DaysPerWeek = sourcePlan.DaysPerWeek,
+                DurationWeeks = sourcePlan.DurationWeeks,
+                IsActive = true,
+                ReviewStatus = "Draft",
+                RejectionReason = null,
+                CreatedAtUtc = now,
+                UpdatedAtUtc = now
+            };
+
+            await using var transaction =
+                await db.Database.BeginTransactionAsync(cancellationToken);
+
+            db.WorkoutPlans.Add(duplicatePlan);
+
+            foreach (var sourceDay in sourceDays)
+            {
+                var duplicateDay = new WorkoutPlanDay
+                {
+                    Id = Guid.NewGuid(),
+                    WorkoutPlanId = duplicatePlan.Id,
+                    DayNumber = sourceDay.DayNumber,
+                    Name = sourceDay.Name,
+                    Description = sourceDay.Description,
+                    IsRestDay = sourceDay.IsRestDay,
+                    EstimatedDurationMinutes = sourceDay.EstimatedDurationMinutes
+                };
+
+                db.WorkoutPlanDays.Add(duplicateDay);
+
+                foreach (var sourceExercise in sourceExercises
+                    .Where(e => e.WorkoutPlanDayId == sourceDay.Id))
+                {
+                    var duplicateExercise = new WorkoutPlanExercise
+                    {
+                        Id = Guid.NewGuid(),
+                        WorkoutPlanDayId = duplicateDay.Id,
+                        ExerciseId = sourceExercise.ExerciseId,
+                        ExerciseOrder = sourceExercise.ExerciseOrder,
+                        Sets = sourceExercise.Sets,
+                        Reps = sourceExercise.Reps,
+                        RestSeconds = sourceExercise.RestSeconds,
+                        DurationSeconds = sourceExercise.DurationSeconds,
+                        Notes = sourceExercise.Notes
+                    };
+
+                    db.WorkoutPlanExercises.Add(duplicateExercise);
+                }
+            }
+
+            await db.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+
+            return Results.Created(
+                $"/api/admin/workout-plans/{duplicatePlan.Id}",
+                new WorkoutPlanResponse
+                {
+                    Id = duplicatePlan.Id,
+                    Name = duplicatePlan.Name,
+                    Description = duplicatePlan.Description,
+                    GoalCode = duplicatePlan.GoalCode,
+                    ExperienceLevel = duplicatePlan.ExperienceLevel,
+                    TrainingLocation = duplicatePlan.TrainingLocation,
+                    DaysPerWeek = duplicatePlan.DaysPerWeek,
+                    DurationWeeks = duplicatePlan.DurationWeeks,
+                    IsActive = duplicatePlan.IsActive,
+                    ReviewStatus = duplicatePlan.ReviewStatus,
+                    RejectionReason = duplicatePlan.RejectionReason,
+                    CreatedAtUtc = duplicatePlan.CreatedAtUtc,
+                    UpdatedAtUtc = duplicatePlan.UpdatedAtUtc
+                });
+        })
+        .WithName("DuplicateWorkoutPlan");
 
         return app;
     }

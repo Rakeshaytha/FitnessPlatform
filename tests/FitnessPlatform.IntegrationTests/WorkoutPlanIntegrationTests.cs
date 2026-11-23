@@ -16460,4 +16460,581 @@ public class WorkoutPlanIntegrationTests
         Assert.NotNull(savedPlan);
         Assert.True(savedPlan.IsActive);
     }
+
+    // ============================================================
+    // STEP 10.29.41 - WORKOUT PLAN DUPLICATION INTEGRATION TESTS
+    // ============================================================
+
+    // TEST 1 - Admin can duplicate a workout plan
+    [Fact]
+    public async Task Admin_CanDuplicateWorkoutPlan()
+    {
+        using var factory = new FitnessPlatformWebApplicationFactory();
+        await TestIdentitySeeder.SeedAsync(factory.Services);
+
+        using var client = factory.CreateClient();
+
+        await AuthenticateDuplicationAdminAsync(client);
+
+        var original = await CreateDuplicationTestPlanAsync(client);
+
+        var response = await client.PostAsync(
+            $"/api/admin/workout-plans/{original.Id}/duplicate",
+            null);
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+
+        var duplicate = await response.Content
+            .ReadFromJsonAsync<WorkoutPlanResponse>();
+
+        Assert.NotNull(duplicate);
+        Assert.NotEqual(original.Id, duplicate.Id);
+        Assert.Equal(original.Name + " (Copy)", duplicate.Name);
+        Assert.Equal(original.Description, duplicate.Description);
+        Assert.Equal(original.GoalCode, duplicate.GoalCode);
+        Assert.Equal(original.ExperienceLevel, duplicate.ExperienceLevel);
+        Assert.Equal(original.TrainingLocation, duplicate.TrainingLocation);
+        Assert.Equal(original.DaysPerWeek, duplicate.DaysPerWeek);
+        Assert.Equal(original.DurationWeeks, duplicate.DurationWeeks);
+        Assert.True(duplicate.IsActive);
+        Assert.Equal("Draft", duplicate.ReviewStatus);
+        Assert.Null(duplicate.RejectionReason);
+    }
+
+    // TEST 2 - Duplicate is persisted in database
+    [Fact]
+    public async Task Admin_DuplicatedWorkoutPlan_IsPersisted()
+    {
+        using var factory = new FitnessPlatformWebApplicationFactory();
+        await TestIdentitySeeder.SeedAsync(factory.Services);
+
+        using var client = factory.CreateClient();
+
+        await AuthenticateDuplicationAdminAsync(client);
+
+        var original = await CreateDuplicationTestPlanAsync(client);
+
+        var response = await client.PostAsync(
+            $"/api/admin/workout-plans/{original.Id}/duplicate",
+            null);
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+
+        var duplicate = await response.Content
+            .ReadFromJsonAsync<WorkoutPlanResponse>();
+
+        Assert.NotNull(duplicate);
+
+        var details = await client.GetFromJsonAsync<WorkoutPlanDetailResponse>(
+            $"/api/admin/workout-plans/{duplicate.Id}");
+
+        Assert.NotNull(details);
+        Assert.Equal(duplicate.Id, details.Id);
+        Assert.Equal(duplicate.Name, details.Name);
+        Assert.Equal("Draft", details.ReviewStatus);
+        Assert.True(details.IsActive);
+    }
+
+    // TEST 3 - Original workout plan remains unchanged
+    [Fact]
+    public async Task Admin_DuplicatingWorkoutPlan_DoesNotModifyOriginal()
+    {
+        using var factory = new FitnessPlatformWebApplicationFactory();
+        await TestIdentitySeeder.SeedAsync(factory.Services);
+
+        using var client = factory.CreateClient();
+
+        await AuthenticateDuplicationAdminAsync(client);
+
+        var original = await CreateDuplicationTestPlanAsync(client);
+
+        var before = await client.GetFromJsonAsync<WorkoutPlanDetailResponse>(
+            $"/api/admin/workout-plans/{original.Id}");
+
+        Assert.NotNull(before);
+
+        var response = await client.PostAsync(
+            $"/api/admin/workout-plans/{original.Id}/duplicate",
+            null);
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+
+        var after = await client.GetFromJsonAsync<WorkoutPlanDetailResponse>(
+            $"/api/admin/workout-plans/{original.Id}");
+
+        Assert.NotNull(after);
+
+        Assert.Equal(before.Id, after.Id);
+        Assert.Equal(before.Name, after.Name);
+        Assert.Equal(before.Description, after.Description);
+        Assert.Equal(before.IsActive, after.IsActive);
+        Assert.Equal(before.ReviewStatus, after.ReviewStatus);
+        Assert.Equal(before.CreatedAtUtc, after.CreatedAtUtc);
+        Assert.Equal(before.UpdatedAtUtc, after.UpdatedAtUtc);
+    }
+
+    // TEST 4 - Workout days are duplicated
+    [Fact]
+    public async Task Admin_DuplicatingWorkoutPlan_CopiesWorkoutDays()
+    {
+        using var factory = new FitnessPlatformWebApplicationFactory();
+        await TestIdentitySeeder.SeedAsync(factory.Services);
+
+        using var client = factory.CreateClient();
+
+        await AuthenticateDuplicationAdminAsync(client);
+
+        var original = await CreateDuplicationTestPlanAsync(client);
+
+        var dayResponse = await client.PostAsJsonAsync(
+            $"/api/admin/workout-plans/{original.Id}/days",
+            new CreateWorkoutPlanDayRequest
+            {
+                DayNumber = 1,
+                Name = "Chest Day",
+                Description = "Upper body training",
+                IsRestDay = false,
+                EstimatedDurationMinutes = 60
+            });
+
+        Assert.Equal(HttpStatusCode.Created, dayResponse.StatusCode);
+
+        var originalDay = await dayResponse.Content
+            .ReadFromJsonAsync<WorkoutPlanDayResponse>();
+
+        Assert.NotNull(originalDay);
+
+        var response = await client.PostAsync(
+            $"/api/admin/workout-plans/{original.Id}/duplicate",
+            null);
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+
+        var duplicate = await response.Content
+            .ReadFromJsonAsync<WorkoutPlanResponse>();
+
+        Assert.NotNull(duplicate);
+
+        var details = await client.GetFromJsonAsync<WorkoutPlanDetailResponse>(
+            $"/api/admin/workout-plans/{duplicate.Id}");
+
+        Assert.NotNull(details);
+
+        var duplicateDay = Assert.Single(details.Days);
+
+        Assert.NotEqual(originalDay.Id, duplicateDay.Id);
+        Assert.Equal(duplicate.Id, duplicateDay.WorkoutPlanId);
+        Assert.Equal(1, duplicateDay.DayNumber);
+        Assert.Equal("Chest Day", duplicateDay.Name);
+        Assert.Equal("Upper body training", duplicateDay.Description);
+        Assert.False(duplicateDay.IsRestDay);
+        Assert.Equal(60, duplicateDay.EstimatedDurationMinutes);
+    }
+
+    // TEST 5 - Rest days are duplicated correctly
+    [Fact]
+    public async Task Admin_DuplicatingWorkoutPlan_PreservesRestDays()
+    {
+        using var factory = new FitnessPlatformWebApplicationFactory();
+        await TestIdentitySeeder.SeedAsync(factory.Services);
+
+        using var client = factory.CreateClient();
+
+        await AuthenticateDuplicationAdminAsync(client);
+
+        var original = await CreateDuplicationTestPlanAsync(client);
+
+        var dayResponse = await client.PostAsJsonAsync(
+            $"/api/admin/workout-plans/{original.Id}/days",
+            new CreateWorkoutPlanDayRequest
+            {
+                DayNumber = 1,
+                Name = "Recovery Day",
+                Description = "Rest and recovery",
+                IsRestDay = true
+            });
+
+        Assert.Equal(HttpStatusCode.Created, dayResponse.StatusCode);
+
+        var response = await client.PostAsync(
+            $"/api/admin/workout-plans/{original.Id}/duplicate",
+            null);
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+
+        var duplicate = await response.Content
+            .ReadFromJsonAsync<WorkoutPlanResponse>();
+
+        Assert.NotNull(duplicate);
+
+        var details = await client.GetFromJsonAsync<WorkoutPlanDetailResponse>(
+            $"/api/admin/workout-plans/{duplicate.Id}");
+
+        Assert.NotNull(details);
+
+        var day = Assert.Single(details.Days);
+
+        Assert.True(day.IsRestDay);
+        Assert.Equal("Recovery Day", day.Name);
+        Assert.Empty(day.Exercises);
+    }
+
+    // TEST 6 - Exercise assignments are duplicated
+    [Fact]
+    public async Task Admin_DuplicatingWorkoutPlan_CopiesExerciseAssignments()
+    {
+        using var factory = new FitnessPlatformWebApplicationFactory();
+        await TestIdentitySeeder.SeedAsync(factory.Services);
+
+        using var client = factory.CreateClient();
+
+        await AuthenticateDuplicationAdminAsync(client);
+
+        var original = await CreateDuplicationTestPlanAsync(client);
+
+        var dayResponse = await client.PostAsJsonAsync(
+            $"/api/admin/workout-plans/{original.Id}/days",
+            new CreateWorkoutPlanDayRequest
+            {
+                DayNumber = 1,
+                Name = "Chest Workout",
+                Description = "Strength training",
+                IsRestDay = false,
+                EstimatedDurationMinutes = 60
+            });
+
+        Assert.Equal(HttpStatusCode.Created, dayResponse.StatusCode);
+
+        var day = await dayResponse.Content
+            .ReadFromJsonAsync<WorkoutPlanDayResponse>();
+
+        Assert.NotNull(day);
+
+        var exerciseResponse = await client.PostAsJsonAsync(
+            "/api/exercises",
+            new SaveExerciseRequest
+            {
+                Code = $"DUP-{Guid.NewGuid():N}",
+                Name = "Duplication Test Bench Press",
+                Description = "Chest exercise",
+                MuscleGroup = "Chest",
+                Equipment = "Barbell",
+                DifficultyLevel = "Beginner",
+                TrainingLocation = "Gym",
+                Instructions = "Controlled repetitions"
+            });
+
+        Assert.Equal(HttpStatusCode.Created, exerciseResponse.StatusCode);
+
+        var exercise = await exerciseResponse.Content
+            .ReadFromJsonAsync<ExerciseResponse>();
+
+        Assert.NotNull(exercise);
+
+        var assignmentResponse = await client.PostAsJsonAsync(
+            $"/api/admin/workout-plans/{original.Id}/days/{day.Id}/exercises",
+            new AddWorkoutPlanExerciseRequest
+            {
+                ExerciseId = exercise.Id,
+                ExerciseOrder = 1,
+                Sets = 3,
+                Reps = 12,
+                RestSeconds = 90,
+                Notes = "Maintain proper form"
+            });
+
+        Assert.Equal(HttpStatusCode.Created, assignmentResponse.StatusCode);
+
+        var originalDetails = await client.GetFromJsonAsync<WorkoutPlanDetailResponse>(
+            $"/api/admin/workout-plans/{original.Id}");
+
+        Assert.NotNull(originalDetails);
+
+        var originalAssignment = Assert.Single(
+            Assert.Single(originalDetails.Days).Exercises);
+
+        var duplicateResponse = await client.PostAsync(
+            $"/api/admin/workout-plans/{original.Id}/duplicate",
+            null);
+
+        Assert.Equal(HttpStatusCode.Created, duplicateResponse.StatusCode);
+
+        var duplicate = await duplicateResponse.Content
+            .ReadFromJsonAsync<WorkoutPlanResponse>();
+
+        Assert.NotNull(duplicate);
+
+        var duplicateDetails = await client.GetFromJsonAsync<WorkoutPlanDetailResponse>(
+            $"/api/admin/workout-plans/{duplicate.Id}");
+
+        Assert.NotNull(duplicateDetails);
+
+        var duplicateDay = Assert.Single(duplicateDetails.Days);
+        var duplicateAssignment = Assert.Single(duplicateDay.Exercises);
+
+        Assert.NotEqual(originalAssignment.Id, duplicateAssignment.Id);
+        Assert.Equal(duplicateDay.Id, duplicateAssignment.WorkoutPlanDayId);
+        Assert.Equal(originalAssignment.ExerciseId, duplicateAssignment.ExerciseId);
+        Assert.Equal(originalAssignment.ExerciseOrder, duplicateAssignment.ExerciseOrder);
+        Assert.Equal(originalAssignment.Sets, duplicateAssignment.Sets);
+        Assert.Equal(originalAssignment.Reps, duplicateAssignment.Reps);
+        Assert.Equal(originalAssignment.RestSeconds, duplicateAssignment.RestSeconds);
+        Assert.Equal(originalAssignment.DurationSeconds, duplicateAssignment.DurationSeconds);
+        Assert.Equal(originalAssignment.Notes, duplicateAssignment.Notes);
+    }
+
+    // TEST 7 - Inactive workout plans can be duplicated
+    [Fact]
+    public async Task Admin_CanDuplicateInactiveWorkoutPlan()
+    {
+        using var factory = new FitnessPlatformWebApplicationFactory();
+        await TestIdentitySeeder.SeedAsync(factory.Services);
+
+        using var client = factory.CreateClient();
+
+        await AuthenticateDuplicationAdminAsync(client);
+
+        var original = await CreateDuplicationTestPlanAsync(client);
+
+        var deactivateResponse = await client.PatchAsync(
+            $"/api/admin/workout-plans/{original.Id}/deactivate",
+            null);
+
+        Assert.Equal(HttpStatusCode.OK, deactivateResponse.StatusCode);
+
+        var response = await client.PostAsync(
+            $"/api/admin/workout-plans/{original.Id}/duplicate",
+            null);
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+
+        var duplicate = await response.Content
+            .ReadFromJsonAsync<WorkoutPlanResponse>();
+
+        Assert.NotNull(duplicate);
+        Assert.True(duplicate.IsActive);
+        Assert.Equal("Draft", duplicate.ReviewStatus);
+
+        var originalDetails = await client.GetFromJsonAsync<WorkoutPlanDetailResponse>(
+            $"/api/admin/workout-plans/{original.Id}");
+
+        Assert.NotNull(originalDetails);
+        Assert.False(originalDetails.IsActive);
+    }
+
+    // TEST 8 - Missing workout plan returns 404
+    [Fact]
+    public async Task Admin_CannotDuplicateNonexistentWorkoutPlan()
+    {
+        using var factory = new FitnessPlatformWebApplicationFactory();
+        await TestIdentitySeeder.SeedAsync(factory.Services);
+
+        using var client = factory.CreateClient();
+
+        await AuthenticateDuplicationAdminAsync(client);
+
+        var response = await client.PostAsync(
+            $"/api/admin/workout-plans/{Guid.NewGuid()}/duplicate",
+            null);
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    // TEST 9 - Unauthenticated user cannot duplicate
+    [Fact]
+    public async Task UnauthenticatedUser_CannotDuplicateWorkoutPlan()
+    {
+        using var factory = new FitnessPlatformWebApplicationFactory();
+        await TestIdentitySeeder.SeedAsync(factory.Services);
+
+        using var client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions
+            {
+                AllowAutoRedirect = false
+            });
+
+        var response = await client.PostAsync(
+            $"/api/admin/workout-plans/{Guid.NewGuid()}/duplicate",
+            null);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    // TEST 10 - Member cannot duplicate workout plans
+    [Fact]
+    public async Task Member_CannotDuplicateWorkoutPlan()
+    {
+        using var factory = new FitnessPlatformWebApplicationFactory();
+        await TestIdentitySeeder.SeedAsync(factory.Services);
+
+        using var client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions
+            {
+                AllowAutoRedirect = false
+            });
+
+        var loginResponse = await client.PostAsJsonAsync(
+            "/api/auth/login",
+            new
+            {
+                Email = TestIdentitySeeder.Member1Email,
+                Password = TestIdentitySeeder.TestPassword
+            });
+
+        Assert.Equal(HttpStatusCode.OK, loginResponse.StatusCode);
+
+        var login = await loginResponse.Content
+            .ReadFromJsonAsync<LoginTestResponse>();
+
+        Assert.NotNull(login);
+
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", login.AccessToken);
+
+        var response = await client.PostAsync(
+            $"/api/admin/workout-plans/{Guid.NewGuid()}/duplicate",
+            null);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    // TEST 11 - Long workout plan names are handled correctly
+    [Fact]
+    public async Task Admin_DuplicatingWorkoutPlan_RespectsNameLengthLimit()
+    {
+        using var factory = new FitnessPlatformWebApplicationFactory();
+        await TestIdentitySeeder.SeedAsync(factory.Services);
+
+        using var client = factory.CreateClient();
+
+        await AuthenticateDuplicationAdminAsync(client);
+
+        var createResponse = await client.PostAsJsonAsync(
+            "/api/admin/workout-plans",
+            new CreateWorkoutPlanRequest
+            {
+                Name = new string('A', 200),
+                Description = "Name length duplication test",
+                GoalCode = "WEIGHT_LOSS",
+                ExperienceLevel = "Beginner",
+                TrainingLocation = "Gym",
+                DaysPerWeek = 5,
+                DurationWeeks = 12
+            });
+
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+
+        var original = await createResponse.Content
+            .ReadFromJsonAsync<WorkoutPlanResponse>();
+
+        Assert.NotNull(original);
+
+        var response = await client.PostAsync(
+            $"/api/admin/workout-plans/{original.Id}/duplicate",
+            null);
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+
+        var duplicate = await response.Content
+            .ReadFromJsonAsync<WorkoutPlanResponse>();
+
+        Assert.NotNull(duplicate);
+        Assert.Equal(200, duplicate.Name.Length);
+        Assert.EndsWith(" (Copy)", duplicate.Name);
+    }
+
+    // TEST 12 - Multiple duplications create independent plans
+    [Fact]
+    public async Task Admin_CanDuplicateSameWorkoutPlanMultipleTimes()
+    {
+        using var factory = new FitnessPlatformWebApplicationFactory();
+        await TestIdentitySeeder.SeedAsync(factory.Services);
+
+        using var client = factory.CreateClient();
+
+        await AuthenticateDuplicationAdminAsync(client);
+
+        var original = await CreateDuplicationTestPlanAsync(client);
+
+        var firstResponse = await client.PostAsync(
+            $"/api/admin/workout-plans/{original.Id}/duplicate",
+            null);
+
+        var secondResponse = await client.PostAsync(
+            $"/api/admin/workout-plans/{original.Id}/duplicate",
+            null);
+
+        Assert.Equal(HttpStatusCode.Created, firstResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, secondResponse.StatusCode);
+
+        var first = await firstResponse.Content
+            .ReadFromJsonAsync<WorkoutPlanResponse>();
+
+        var second = await secondResponse.Content
+            .ReadFromJsonAsync<WorkoutPlanResponse>();
+
+        Assert.NotNull(first);
+        Assert.NotNull(second);
+
+        Assert.NotEqual(original.Id, first.Id);
+        Assert.NotEqual(original.Id, second.Id);
+        Assert.NotEqual(first.Id, second.Id);
+        Assert.Equal(first.Name, second.Name);
+        Assert.Equal("Draft", first.ReviewStatus);
+        Assert.Equal("Draft", second.ReviewStatus);
+    }
+
+    // ============================================================
+    // SHARED HELPERS FOR WORKOUT PLAN DUPLICATION TESTS
+    // ============================================================
+
+    private static async Task AuthenticateDuplicationAdminAsync(HttpClient client)
+    {
+        var loginResponse = await client.PostAsJsonAsync(
+            "/api/auth/login",
+            new
+            {
+                Email = TestIdentitySeeder.AdminEmail,
+                Password = TestIdentitySeeder.TestPassword
+            });
+
+        Assert.Equal(HttpStatusCode.OK, loginResponse.StatusCode);
+
+        var login = await loginResponse.Content
+            .ReadFromJsonAsync<LoginTestResponse>();
+
+        Assert.NotNull(login);
+        Assert.False(string.IsNullOrWhiteSpace(login.AccessToken));
+
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", login.AccessToken);
+    }
+
+    private static async Task<WorkoutPlanResponse> CreateDuplicationTestPlanAsync(
+        HttpClient client)
+    {
+        var response = await client.PostAsJsonAsync(
+            "/api/admin/workout-plans",
+            new CreateWorkoutPlanRequest
+            {
+                Name = $"Duplication Test {Guid.NewGuid():N}",
+                Description = "Workout plan duplication integration test.",
+                GoalCode = "WEIGHT_LOSS",
+                ExperienceLevel = "Beginner",
+                TrainingLocation = "Gym",
+                DaysPerWeek = 5,
+                DurationWeeks = 12
+            });
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+
+        var plan = await response.Content
+            .ReadFromJsonAsync<WorkoutPlanResponse>();
+
+        Assert.NotNull(plan);
+
+        return plan;
+    }
+
+
 }
