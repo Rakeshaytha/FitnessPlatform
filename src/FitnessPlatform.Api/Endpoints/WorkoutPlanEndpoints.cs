@@ -1360,6 +1360,162 @@ public static class WorkoutPlanEndpoints
         })
         .WithName("RejectWorkoutPlan");
 
+        // REORDER WORKOUT DAYS WITHIN A WORKOUT PLAN
+        group.MapPut("/{planId:guid}/days/reorder", async (
+            Guid planId,
+            ReorderWorkoutPlanDaysRequest request,
+            FitnessPlatformDbContext db,
+            CancellationToken cancellationToken) =>
+        {
+            // Step 1: Verify workout plan exists
+            var plan = await db.WorkoutPlans.FindAsync(
+                new object[] { planId },
+                cancellationToken);
+
+            if (plan is null)
+            {
+                return Results.NotFound(new
+                {
+                    Error = "Workout plan not found."
+                });
+            }
+
+            // Step 2: Verify workout plan is editable
+            if (!WorkoutPlanReviewWorkflowValidator.CanEdit(
+                plan.ReviewStatus,
+                plan.IsActive))
+            {
+                return Results.Conflict(new
+                {
+                    Error = "Only active Draft or Rejected workout plans can be edited."
+                });
+            }
+
+            // Step 3: Validate request
+            if (request?.Days is null || request.Days.Count == 0)
+            {
+                return Results.BadRequest(new
+                {
+                    Error = "At least one workout day is required."
+                });
+            }
+
+            var requestedDays = request.Days;
+
+            // Step 4: Validate day IDs and day numbers
+            if (requestedDays.Any(x =>
+                x is null ||
+                x.DayId == Guid.Empty ||
+                x.DayNumber < 1))
+            {
+                return Results.BadRequest(new
+                {
+                    Error = "Invalid workout day reorder values."
+                });
+            }
+
+            // Step 5: Reject duplicate workout day IDs
+            if (requestedDays
+                .Select(x => x.DayId)
+                .Distinct()
+                .Count() != requestedDays.Count)
+            {
+                return Results.BadRequest(new
+                {
+                    Error = "Duplicate workout day IDs are not allowed."
+                });
+            }
+
+            // Step 6: Verify day numbers are consecutive
+            var requestedNumbers = requestedDays
+                .Select(x => x.DayNumber)
+                .OrderBy(x => x)
+                .ToArray();
+
+            var expectedNumbers = Enumerable
+                .Range(1, requestedDays.Count)
+                .ToArray();
+
+            if (!requestedNumbers.SequenceEqual(expectedNumbers))
+            {
+                return Results.BadRequest(new
+                {
+                    Error = "Workout day numbers must be unique and consecutive starting from 1."
+                });
+            }
+
+            // Step 7: Retrieve existing workout days
+            var days = await db.WorkoutPlanDays
+                .Where(x => x.WorkoutPlanId == planId)
+                .ToListAsync(cancellationToken);
+
+            // Step 8: Ensure all workout days belong to this plan
+            var existingIds = days
+                .Select(x => x.Id)
+                .ToHashSet();
+
+            var requestedIds = requestedDays
+                .Select(x => x.DayId)
+                .ToHashSet();
+
+            if (!existingIds.SetEquals(requestedIds))
+            {
+                return Results.BadRequest(new
+                {
+                    Error = "Reorder request must contain every workout day belonging to this workout plan."
+                });
+            }
+
+            // Step 9: Begin transaction
+            await using var transaction =
+                await db.Database.BeginTransactionAsync(cancellationToken);
+
+            // Step 10: Assign temporary negative positions
+            // This prevents collisions with the unique index
+            // (WorkoutPlanId, DayNumber).
+            for (var i = 0; i < days.Count; i++)
+            {
+                days[i].DayNumber = -(i + 1);
+            }
+
+            await db.SaveChangesAsync(cancellationToken);
+
+            // Step 11: Apply requested day numbers
+            var requestedNumberById = requestedDays
+                .ToDictionary(x => x.DayId, x => x.DayNumber);
+
+            foreach (var day in days)
+            {
+                day.DayNumber = requestedNumberById[day.Id];
+            }
+
+            // Step 12: Update workout plan timestamp
+            plan.UpdatedAtUtc = DateTime.UtcNow;
+
+            await db.SaveChangesAsync(cancellationToken);
+
+            // Step 13: Commit transaction
+            await transaction.CommitAsync(cancellationToken);
+
+            // Step 14: Return updated workout days
+            var response = days
+                .OrderBy(x => x.DayNumber)
+                .Select(x => new WorkoutPlanDayResponse
+                {
+                    Id = x.Id,
+                    WorkoutPlanId = x.WorkoutPlanId,
+                    DayNumber = x.DayNumber,
+                    Name = x.Name,
+                    Description = x.Description,
+                    IsRestDay = x.IsRestDay,
+                    EstimatedDurationMinutes = x.EstimatedDurationMinutes
+                })
+                .ToList();
+
+            return Results.Ok(response);
+        })
+        .WithName("ReorderWorkoutPlanDays");
+
         return app;
     }
 }
