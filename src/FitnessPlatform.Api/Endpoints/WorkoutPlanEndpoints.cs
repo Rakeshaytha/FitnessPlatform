@@ -66,11 +66,17 @@ public static class WorkoutPlanEndpoints
             }
 
             var now = DateTime.UtcNow;
+            var newPlanId = Guid.NewGuid();
 
             var plan = new WorkoutPlan
             {
-                Id = Guid.NewGuid(),
-                Name = request.Name.Trim(),
+                Id = newPlanId,
+
+                VersionNumber = 1,
+                VersionGroupId = newPlanId,
+                PreviousVersionId = null,
+                IsLatestVersion = true,
+                 Name = request.Name.Trim(),
                 Description = request.Description?.Trim() ?? string.Empty,
                 GoalCode = request.GoalCode.Trim(),
                 ExperienceLevel = request.ExperienceLevel.Trim(),
@@ -123,6 +129,15 @@ public static class WorkoutPlanEndpoints
                 return Results.NotFound(new
                 {
                     Error = "Workout plan not found."
+                });
+            }
+
+            // Prevent modifications to historical workout plan versions.
+            if (!plan.IsLatestVersion)
+            {
+                return Results.Conflict(new
+                {
+                    Error = "Historical workout plan versions cannot be modified."
                 });
             }
 
@@ -216,6 +231,7 @@ public static class WorkoutPlanEndpoints
             var plan = await db.WorkoutPlans
                 .FindAsync(new object[] { planId }, cancellationToken);
 
+            // Verify workout plan exists
             if (plan is null)
             {
                 return Results.NotFound(new
@@ -224,6 +240,16 @@ public static class WorkoutPlanEndpoints
                 });
             }
 
+            // Prevent deactivating historical workout plan versions
+            if (!plan.IsLatestVersion)
+            {
+                return Results.Conflict(new
+                {
+                    Error = "Historical workout plan versions cannot be modified."
+                });
+            }
+
+            // Prevent deactivating an already inactive workout plan
             if (!plan.IsActive)
             {
                 return Results.Conflict(new
@@ -263,7 +289,14 @@ public static class WorkoutPlanEndpoints
                     Error = "Workout plan not found."
                 });
             }
-
+            // Prevent adding workout days to historical plan versions.
+            if (!plan.IsLatestVersion)
+            {
+                return Results.Conflict(new
+                {
+                    Error = "Historical workout plan versions cannot be modified."
+                });
+            }
 
             if (!WorkoutPlanReviewWorkflowValidator.CanEdit(
                     plan.ReviewStatus,
@@ -371,6 +404,14 @@ public static class WorkoutPlanEndpoints
                 return Results.NotFound(new
                 {
                     Error = "Workout plan not found."
+                });
+            }
+            // Prevent updates to workout days in historical plan versions.
+            if (!plan.IsLatestVersion)
+            {
+                return Results.Conflict(new
+                {
+                    Error = "Historical workout plan versions cannot be modified."
                 });
             }
 
@@ -490,6 +531,17 @@ public static class WorkoutPlanEndpoints
                     Error = "Workout plan not found."
                 });
             }
+      
+      
+
+            // Prevent deletion of workout days from historical plan versions.
+            if (!plan.IsLatestVersion)
+            {
+                return Results.Conflict(new
+                {
+                    Error = "Historical workout plan versions cannot be modified."
+                });
+            }
 
             // Step 2: Verify workout plan can be edited
             if (!WorkoutPlanReviewWorkflowValidator.CanEdit(
@@ -546,7 +598,14 @@ public static class WorkoutPlanEndpoints
                     Error = "Workout plan not found."
                 });
             }
-
+            // Prevent adding exercises to historical workout plan versions.
+            if (!plan.IsLatestVersion)
+            {
+                return Results.Conflict(new
+                {
+                    Error = "Historical workout plan versions cannot be modified."
+                });
+            }
 
             if (!WorkoutPlanReviewWorkflowValidator.CanEdit(
                     plan.ReviewStatus,
@@ -681,7 +740,14 @@ public static class WorkoutPlanEndpoints
                     Error = "Workout plan not found."
                 });
             }
-
+            // Prevent updating exercises in historical workout plan versions.
+            if (!plan.IsLatestVersion)
+            {
+                return Results.Conflict(new
+                {
+                    Error = "Historical workout plan versions cannot be modified."
+                });
+            }
             // Step 2: Verify workout plan is editable
             if (!WorkoutPlanReviewWorkflowValidator.CanEdit(
                     plan.ReviewStatus,
@@ -828,6 +894,14 @@ public static class WorkoutPlanEndpoints
                 return Results.NotFound();
             }
 
+            // Prevent deleting exercises from historical workout plan versions.
+            if (!plan.IsLatestVersion)
+            {
+                return Results.Conflict(new
+                {
+                    Error = "Historical workout plan versions cannot be modified."
+                });
+            }
             // Step 2: Verify workout plan is editable
             if (!WorkoutPlanReviewWorkflowValidator.CanEdit(
                     plan.ReviewStatus,
@@ -891,7 +965,14 @@ public static class WorkoutPlanEndpoints
                     Error = "Workout plan not found."
                 });
             }
-
+            // Prevent reordering exercises in historical workout plan versions.
+            if (!plan.IsLatestVersion)
+            {
+                return Results.Conflict(new
+                {
+                    Error = "Historical workout plan versions cannot be modified."
+                });
+            }
             // Step 2: Verify workout plan is editable
             if (!WorkoutPlanReviewWorkflowValidator.CanEdit(
                     plan.ReviewStatus,
@@ -1152,7 +1233,14 @@ public static class WorkoutPlanEndpoints
                     Error = "Workout plan not found."
                 });
             }
-
+            // Prevent submitting historical workout plan versions for review.
+            if (!plan.IsLatestVersion)
+            {
+                return Results.Conflict(new
+                {
+                    Error = "Historical workout plan versions cannot be modified."
+                });
+            }
             // Step 2: Validate review status
             if (plan.ReviewStatus != "Draft" &&
                 plan.ReviewStatus != "Rejected")
@@ -1258,8 +1346,15 @@ public static class WorkoutPlanEndpoints
                 });
             }
 
+            // Prevent approving historical workout plan versions.
+            if (!plan.IsLatestVersion)
+            {
+                return Results.Conflict(new
+                {
+                    Error = "Historical workout plan versions cannot be modified."
+                });
+            }
 
-            
             // Step 2: Validate review status
             if (plan.ReviewStatus != "In Review")
             {
@@ -1316,6 +1411,14 @@ public static class WorkoutPlanEndpoints
                     Error = "Workout plan not found."
                 });
             }
+            // Prevent rejecting historical workout plan versions.
+            if (!plan.IsLatestVersion)
+            {
+                return Results.Conflict(new
+                {
+                    Error = "Historical workout plan versions cannot be modified."
+                });
+            }
 
             if (!WorkoutPlanReviewWorkflowValidator.CanReject(
                     plan.ReviewStatus))
@@ -1343,6 +1446,7 @@ public static class WorkoutPlanEndpoints
             }
 
             plan.ReviewStatus = "Rejected";
+
             plan.RejectionReason = request.Reason.Trim();
             plan.UpdatedAtUtc = DateTime.UtcNow;
 
@@ -1379,7 +1483,14 @@ public static class WorkoutPlanEndpoints
                     Error = "Workout plan not found."
                 });
             }
-
+            // Prevent reordering workout days in historical plan versions.
+            if (!plan.IsLatestVersion)
+            {
+                return Results.Conflict(new
+                {
+                    Error = "Historical workout plan versions cannot be modified."
+                });
+            }
             // Step 2: Verify workout plan is editable
             if (!WorkoutPlanReviewWorkflowValidator.CanEdit(
                 plan.ReviewStatus,
@@ -1526,6 +1637,7 @@ public static class WorkoutPlanEndpoints
             var plan = await db.WorkoutPlans
                 .FindAsync(new object[] { planId }, cancellationToken);
 
+            // Verify workout plan exists
             if (plan is null)
             {
                 return Results.NotFound(new
@@ -1534,7 +1646,16 @@ public static class WorkoutPlanEndpoints
                 });
             }
 
-            // Step 2: Prevent activating an already active plan
+            // Prevent activating historical workout plan versions
+            if (!plan.IsLatestVersion)
+            {
+                return Results.Conflict(new
+                {
+                    Error = "Historical workout plan versions cannot be modified."
+                });
+            }
+
+            // Prevent activating an already active workout plan
             if (plan.IsActive)
             {
                 return Results.Conflict(new
@@ -1594,12 +1715,19 @@ public static class WorkoutPlanEndpoints
                 .ToListAsync(cancellationToken);
 
             var now = DateTime.UtcNow;
+            var duplicatePlanId = Guid.NewGuid();
 
             var duplicatePlan = new WorkoutPlan
             {
-                Id = Guid.NewGuid(),
+                Id = duplicatePlanId,
+
+                VersionNumber = 1,
+                VersionGroupId = duplicatePlanId,
+                PreviousVersionId = null,
+                IsLatestVersion = true,
+
                 Name = sourcePlan.Name.Length > 193
-                    ? sourcePlan.Name[..193] + " (Copy)"
+                                ? sourcePlan.Name[..193] + " (Copy)"
                     : sourcePlan.Name + " (Copy)",
                 Description = sourcePlan.Description,
                 GoalCode = sourcePlan.GoalCode,
@@ -1677,6 +1805,341 @@ public static class WorkoutPlanEndpoints
                 });
         })
         .WithName("DuplicateWorkoutPlan");
+
+        // CREATE NEW WORKOUT PLAN VERSION
+        group.MapPost("/{planId:guid}/versions", async (
+            Guid planId,
+            FitnessPlatformDbContext db,
+            CancellationToken cancellationToken) =>
+        {
+            // Serializable isolation protects version numbering
+            // when multiple requests execute concurrently.
+            await using var transaction =
+                await db.Database.BeginTransactionAsync(
+                    System.Data.IsolationLevel.Serializable,
+                    cancellationToken);
+
+            var sourcePlan = await db.WorkoutPlans
+                .FirstOrDefaultAsync(
+                    p => p.Id == planId,
+                    cancellationToken);
+
+            if (sourcePlan is null)
+            {
+                return Results.NotFound(new
+                {
+                    Error = "Workout plan not found."
+                });
+            }
+
+            if (!sourcePlan.IsLatestVersion)
+            {
+                return Results.Conflict(new
+                {
+                    Error = "Only the latest workout plan version can be versioned."
+                });
+            }
+
+            var latestVersionNumber = await db.WorkoutPlans
+                .Where(p => p.VersionGroupId == sourcePlan.VersionGroupId)
+                .MaxAsync(p => p.VersionNumber, cancellationToken);
+
+            if (sourcePlan.VersionNumber != latestVersionNumber)
+            {
+                return Results.Conflict(new
+                {
+                    Error = "The selected workout plan is not the latest version."
+                });
+            }
+
+            if (latestVersionNumber == int.MaxValue)
+            {
+                return Results.Conflict(new
+                {
+                    Error = "Maximum workout plan version number reached."
+                });
+            }
+
+            var sourceDays = await db.WorkoutPlanDays
+                .AsNoTracking()
+                .Where(d => d.WorkoutPlanId == sourcePlan.Id)
+                .OrderBy(d => d.DayNumber)
+                .ToListAsync(cancellationToken);
+
+            var sourceDayIds = sourceDays
+                .Select(d => d.Id)
+                .ToList();
+
+            var sourceExercises = await db.WorkoutPlanExercises
+                .AsNoTracking()
+                .Where(e => sourceDayIds.Contains(e.WorkoutPlanDayId))
+                .OrderBy(e => e.ExerciseOrder)
+                .ToListAsync(cancellationToken);
+
+            var now = DateTime.UtcNow;
+
+            var newPlan = new WorkoutPlan
+            {
+                Id = Guid.NewGuid(),
+
+                Name = sourcePlan.Name,
+                Description = sourcePlan.Description,
+                GoalCode = sourcePlan.GoalCode,
+                ExperienceLevel = sourcePlan.ExperienceLevel,
+                TrainingLocation = sourcePlan.TrainingLocation,
+                DaysPerWeek = sourcePlan.DaysPerWeek,
+                DurationWeeks = sourcePlan.DurationWeeks,
+
+                VersionNumber = latestVersionNumber + 1,
+                VersionGroupId = sourcePlan.VersionGroupId,
+                PreviousVersionId = sourcePlan.Id,
+                IsLatestVersion = true,
+
+                IsActive = true,
+                ReviewStatus = "Draft",
+                RejectionReason = null,
+
+                CreatedAtUtc = now,
+                UpdatedAtUtc = now
+            };
+
+            sourcePlan.IsLatestVersion = false;
+            sourcePlan.UpdatedAtUtc = now;
+
+            db.WorkoutPlans.Add(newPlan);
+
+            foreach (var sourceDay in sourceDays)
+            {
+                var newDay = new WorkoutPlanDay
+                {
+                    Id = Guid.NewGuid(),
+                    WorkoutPlanId = newPlan.Id,
+                    DayNumber = sourceDay.DayNumber,
+                    Name = sourceDay.Name,
+                    Description = sourceDay.Description,
+                    IsRestDay = sourceDay.IsRestDay,
+                    EstimatedDurationMinutes =
+                        sourceDay.EstimatedDurationMinutes
+                };
+
+                db.WorkoutPlanDays.Add(newDay);
+
+                foreach (var sourceExercise in sourceExercises
+                    .Where(e => e.WorkoutPlanDayId == sourceDay.Id))
+                {
+                    var newExercise = new WorkoutPlanExercise
+                    {
+                        Id = Guid.NewGuid(),
+                        WorkoutPlanDayId = newDay.Id,
+                        ExerciseId = sourceExercise.ExerciseId,
+                        ExerciseOrder = sourceExercise.ExerciseOrder,
+                        Sets = sourceExercise.Sets,
+                        Reps = sourceExercise.Reps,
+                        RestSeconds = sourceExercise.RestSeconds,
+                        DurationSeconds = sourceExercise.DurationSeconds,
+                        Notes = sourceExercise.Notes
+                    };
+
+                    db.WorkoutPlanExercises.Add(newExercise);
+                }
+            }
+
+            await db.SaveChangesAsync(cancellationToken);
+
+            await transaction.CommitAsync(cancellationToken);
+
+            return Results.Created(
+                $"/api/admin/workout-plans/{newPlan.Id}",
+                new
+                {
+                    newPlan.Id,
+                    newPlan.Name,
+                    newPlan.VersionNumber,
+                    newPlan.VersionGroupId,
+                    newPlan.PreviousVersionId,
+                    newPlan.IsLatestVersion,
+                    newPlan.IsActive,
+                    newPlan.ReviewStatus,
+                    newPlan.RejectionReason,
+                    newPlan.CreatedAtUtc,
+                    newPlan.UpdatedAtUtc
+                });
+        })
+        .WithName("CreateWorkoutPlanVersion");
+
+        // GET WORKOUT PLAN VERSION HISTORY
+        group.MapGet("/{planId:guid}/versions", async (
+            Guid planId,
+            FitnessPlatformDbContext db,
+            CancellationToken cancellationToken) =>
+        {
+            // Find the requested workout plan
+            var plan = await db.WorkoutPlans
+                .AsNoTracking()
+                .FirstOrDefaultAsync(
+                    p => p.Id == planId,
+                    cancellationToken);
+
+            if (plan is null)
+            {
+                return Results.NotFound(new
+                {
+                    Error = "Workout plan not found."
+                });
+            }
+
+            // Retrieve all versions in the same group
+            var versions = await db.WorkoutPlans
+                .AsNoTracking()
+                .Where(p => p.VersionGroupId == plan.VersionGroupId)
+                .OrderByDescending(p => p.VersionNumber)
+                .Select(p => new
+                {
+                    p.Id,
+                    p.Name,
+                    p.VersionNumber,
+                    p.VersionGroupId,
+                    p.PreviousVersionId,
+                    p.IsLatestVersion,
+                    p.IsActive,
+                    p.ReviewStatus,
+                    p.CreatedAtUtc,
+                    p.UpdatedAtUtc
+                })
+                .ToListAsync(cancellationToken);
+
+            return Results.Ok(new
+            {
+                PlanId = planId,
+                VersionGroupId = plan.VersionGroupId,
+                TotalVersions = versions.Count,
+                Versions = versions
+            });
+        })
+        .WithName("GetWorkoutPlanVersionHistory");
+
+        // GET A SPECIFIC WORKOUT PLAN VERSION
+        group.MapGet("/{planId:guid}/versions/{versionNumber:int}", async (
+            Guid planId,
+            int versionNumber,
+            FitnessPlatformDbContext db,
+            CancellationToken cancellationToken) =>
+        {
+            if (versionNumber < 1)
+            {
+                return Results.BadRequest(new
+                {
+                    Error = "Version number must be greater than zero."
+                });
+            }
+
+            var sourcePlan = await db.WorkoutPlans
+                .AsNoTracking()
+                .FirstOrDefaultAsync(
+                    p => p.Id == planId,
+                    cancellationToken);
+
+            if (sourcePlan is null)
+            {
+                return Results.NotFound(new
+                {
+                    Error = "Workout plan not found."
+                });
+            }
+
+            var version = await db.WorkoutPlans
+                .AsNoTracking()
+                .FirstOrDefaultAsync(
+                    p => p.VersionGroupId == sourcePlan.VersionGroupId
+                         && p.VersionNumber == versionNumber,
+                    cancellationToken);
+
+            if (version is null)
+            {
+                return Results.NotFound(new
+                {
+                    Error = $"Workout plan version {versionNumber} not found."
+                });
+            }
+
+            var days = await db.WorkoutPlanDays
+                .AsNoTracking()
+                .Where(d => d.WorkoutPlanId == version.Id)
+                .OrderBy(d => d.DayNumber)
+                .Select(d => new
+                {
+                    d.Id,
+                    d.WorkoutPlanId,
+                    d.DayNumber,
+                    d.Name,
+                    d.Description,
+                    d.IsRestDay,
+                    d.EstimatedDurationMinutes
+                })
+                .ToListAsync(cancellationToken);
+
+            var dayIds = days.Select(d => d.Id).ToList();
+
+            var exercises = await db.WorkoutPlanExercises
+                .AsNoTracking()
+                .Where(e => dayIds.Contains(e.WorkoutPlanDayId))
+                .OrderBy(e => e.ExerciseOrder)
+                .Select(e => new
+                {
+                    e.Id,
+                    e.WorkoutPlanDayId,
+                    e.ExerciseId,
+                    e.ExerciseOrder,
+                    e.Sets,
+                    e.Reps,
+                    e.RestSeconds,
+                    e.DurationSeconds,
+                    e.Notes
+                })
+                .ToListAsync(cancellationToken);
+
+            var responseDays = days.Select(day => new
+            {
+                day.Id,
+                day.WorkoutPlanId,
+                day.DayNumber,
+                day.Name,
+                day.Description,
+                day.IsRestDay,
+                day.EstimatedDurationMinutes,
+
+                Exercises = exercises
+                    .Where(e => e.WorkoutPlanDayId == day.Id)
+                    .ToList()
+            }).ToList();
+
+            return Results.Ok(new
+            {
+                version.Id,
+                version.Name,
+                version.Description,
+                version.GoalCode,
+                version.ExperienceLevel,
+                version.TrainingLocation,
+                version.DaysPerWeek,
+                version.DurationWeeks,
+
+                version.VersionNumber,
+                version.VersionGroupId,
+                version.PreviousVersionId,
+                version.IsLatestVersion,
+
+                version.IsActive,
+                version.ReviewStatus,
+                version.RejectionReason,
+                version.CreatedAtUtc,
+                version.UpdatedAtUtc,
+
+                Days = responseDays
+            });
+        })
+        .WithName("GetWorkoutPlanSpecificVersion");
+
 
         return app;
     }

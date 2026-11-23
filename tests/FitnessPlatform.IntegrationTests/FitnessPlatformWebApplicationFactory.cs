@@ -68,7 +68,15 @@ public class FitnessPlatformWebApplicationFactory
             }
 
             services.AddDbContext<FitnessPlatformDbContext>(options =>
-                options.UseSqlServer(connectionString));
+    options.UseSqlServer(connectionString));
+
+            using var serviceProvider = services.BuildServiceProvider();
+            using var scope = serviceProvider.CreateScope();
+
+            var db = scope.ServiceProvider
+                .GetRequiredService<FitnessPlatformDbContext>();
+
+            db.Database.Migrate();
         });
     }
 }

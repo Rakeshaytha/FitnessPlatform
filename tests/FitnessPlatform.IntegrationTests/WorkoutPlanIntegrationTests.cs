@@ -16985,6 +16985,3021 @@ public class WorkoutPlanIntegrationTests
     }
 
     // ============================================================
+    // WORKOUT PLAN VERSIONING INTEGRATION TESTS
+    // Step 10.29.42.11
+    // ============================================================
+
+    [Fact]
+    public async Task Admin_CanCreateNewWorkoutPlanVersion()
+    {
+        // Arrange
+        using var factory = new FitnessPlatformWebApplicationFactory();
+
+        await TestIdentitySeeder.SeedAsync(factory.Services);
+
+        using var client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions
+            {
+                AllowAutoRedirect = false
+            });
+
+        await AuthenticateDuplicationAdminAsync(client);
+
+        // Create Version 1
+        var original = await CreateDuplicationTestPlanAsync(client);
+
+        // Act: Create Version 2
+        var versionResponse = await client.PostAsync(
+            $"/api/admin/workout-plans/{original.Id}/versions",
+            null);
+
+        Assert.Equal(
+            HttpStatusCode.Created,
+            versionResponse.StatusCode);
+
+        using var versionDocument = await System.Text.Json.JsonDocument
+            .ParseAsync(await versionResponse.Content.ReadAsStreamAsync());
+
+        var version = versionDocument.RootElement;
+
+        var version2Id = version.GetProperty("id").GetGuid();
+
+        // Assert: Version 2 metadata
+        Assert.NotEqual(original.Id, version2Id);
+
+        Assert.Equal(
+            2,
+            version.GetProperty("versionNumber").GetInt32());
+
+        Assert.Equal(
+            original.Id,
+            version.GetProperty("versionGroupId").GetGuid());
+
+        Assert.Equal(
+            original.Id,
+            version.GetProperty("previousVersionId").GetGuid());
+
+        Assert.True(
+            version.GetProperty("isLatestVersion").GetBoolean());
+
+        Assert.Equal(
+            "Draft",
+            version.GetProperty("reviewStatus").GetString());
+
+        // Retrieve version history
+        var historyResponse = await client.GetAsync(
+            $"/api/admin/workout-plans/{original.Id}/versions");
+
+        Assert.Equal(
+            HttpStatusCode.OK,
+            historyResponse.StatusCode);
+
+        using var historyDocument = await System.Text.Json.JsonDocument
+            .ParseAsync(await historyResponse.Content.ReadAsStreamAsync());
+
+        var history = historyDocument.RootElement;
+
+        Assert.Equal(
+            2,
+            history.GetProperty("totalVersions").GetInt32());
+
+        var versions = history.GetProperty("versions");
+
+        Assert.Equal(2, versions.GetArrayLength());
+
+        // Version history is ordered descending
+        var latest = versions[0];
+        var previous = versions[1];
+
+        // Version 2
+        Assert.Equal(
+            2,
+            latest.GetProperty("versionNumber").GetInt32());
+
+        Assert.True(
+            latest.GetProperty("isLatestVersion").GetBoolean());
+
+        Assert.Equal(
+            version2Id,
+            latest.GetProperty("id").GetGuid());
+
+        // Version 1
+        Assert.Equal(
+            1,
+            previous.GetProperty("versionNumber").GetInt32());
+
+        Assert.False(
+            previous.GetProperty("isLatestVersion").GetBoolean());
+
+        Assert.Equal(
+            original.Id,
+            previous.GetProperty("id").GetGuid());
+
+        // Verify both versions belong to the same group
+        Assert.Equal(
+            latest.GetProperty("versionGroupId").GetGuid(),
+            previous.GetProperty("versionGroupId").GetGuid());
+    }
+
+    // ============================================================
+    // Step 10.29.42.12
+    // Verify workout days are deep-cloned during version creation
+    // ============================================================
+
+    [Fact]
+    public async Task Admin_CreatingNewWorkoutPlanVersion_CopiesWorkoutDays()
+    {
+        // Arrange
+        using var factory = new FitnessPlatformWebApplicationFactory();
+
+        await TestIdentitySeeder.SeedAsync(factory.Services);
+
+        using var client = factory.CreateClient();
+
+        await AuthenticateDuplicationAdminAsync(client);
+
+        // Create Version 1
+        var original = await CreateDuplicationTestPlanAsync(client);
+
+        // Add workout day to Version 1
+        var dayResponse = await client.PostAsJsonAsync(
+            $"/api/admin/workout-plans/{original.Id}/days",
+            new CreateWorkoutPlanDayRequest
+            {
+                DayNumber = 1,
+                Name = "Chest Day",
+                Description = "Upper body training",
+                IsRestDay = false,
+                EstimatedDurationMinutes = 60
+            });
+
+        Assert.Equal(HttpStatusCode.Created, dayResponse.StatusCode);
+
+        var originalDay = await dayResponse.Content
+            .ReadFromJsonAsync<WorkoutPlanDayResponse>();
+
+        Assert.NotNull(originalDay);
+
+        // Act: Create Version 2
+        var versionResponse = await client.PostAsync(
+            $"/api/admin/workout-plans/{original.Id}/versions",
+            null);
+
+        Assert.Equal(HttpStatusCode.Created, versionResponse.StatusCode);
+
+        using var versionDocument = await System.Text.Json.JsonDocument
+            .ParseAsync(await versionResponse.Content.ReadAsStreamAsync());
+
+        var version2Id = versionDocument.RootElement
+            .GetProperty("id")
+            .GetGuid();
+
+        // Retrieve Version 2
+        var version2 = await client
+            .GetFromJsonAsync<WorkoutPlanDetailResponse>(
+                $"/api/admin/workout-plans/{version2Id}");
+
+        Assert.NotNull(version2);
+
+        // Verify the copied day
+        var copiedDay = Assert.Single(version2.Days);
+
+        Assert.NotEqual(originalDay.Id, copiedDay.Id);
+        Assert.Equal(version2Id, copiedDay.WorkoutPlanId);
+        Assert.Equal(originalDay.DayNumber, copiedDay.DayNumber);
+        Assert.Equal(originalDay.Name, copiedDay.Name);
+        Assert.Equal(originalDay.Description, copiedDay.Description);
+        Assert.Equal(originalDay.IsRestDay, copiedDay.IsRestDay);
+
+        Assert.Equal(
+            originalDay.EstimatedDurationMinutes,
+            copiedDay.EstimatedDurationMinutes);
+
+        // Verify Version 1 remains unchanged
+        var version1 = await client
+            .GetFromJsonAsync<WorkoutPlanDetailResponse>(
+                $"/api/admin/workout-plans/{original.Id}");
+
+        Assert.NotNull(version1);
+
+        var preservedDay = Assert.Single(version1.Days);
+
+        Assert.Equal(originalDay.Id, preservedDay.Id);
+        Assert.Equal(original.Id, preservedDay.WorkoutPlanId);
+        Assert.Equal(originalDay.Name, preservedDay.Name);
+        Assert.Equal(originalDay.Description, preservedDay.Description);
+    }
+
+    // ============================================================
+    // Step 10.29.42.13
+    // Verify exercise-level deep cloning during version creation
+    // ============================================================
+
+    [Fact]
+    public async Task Admin_CreatingNewWorkoutPlanVersion_CopiesExercises()
+    {
+        // Arrange
+        using var factory = new FitnessPlatformWebApplicationFactory();
+
+        await TestIdentitySeeder.SeedAsync(factory.Services);
+
+        using var client = factory.CreateClient();
+
+        await AuthenticateDuplicationAdminAsync(client);
+
+        // 1. Create Workout Plan V1
+        var original = await CreateDuplicationTestPlanAsync(client);
+
+        // 2. Create workout day
+        var dayResponse = await client.PostAsJsonAsync(
+            $"/api/admin/workout-plans/{original.Id}/days",
+            new CreateWorkoutPlanDayRequest
+            {
+                DayNumber = 1,
+                Name = "Chest & Triceps",
+                Description = "Upper-body strength workout",
+                IsRestDay = false,
+                EstimatedDurationMinutes = 60
+            });
+
+        Assert.Equal(HttpStatusCode.Created, dayResponse.StatusCode);
+
+        var originalDay = await dayResponse.Content
+            .ReadFromJsonAsync<WorkoutPlanDayResponse>();
+
+        Assert.NotNull(originalDay);
+
+        // 3. Create exercise in exercise catalog
+        var exerciseResponse = await client.PostAsJsonAsync(
+            "/api/exercises",
+            new SaveExerciseRequest
+            {
+                Code = $"VERSION-BENCH-{Guid.NewGuid():N}",
+                Name = "Versioning Test Bench Press",
+                Description = "Chest strength exercise",
+                MuscleGroup = "Chest",
+                Equipment = "Barbell",
+                DifficultyLevel = "Beginner",
+                TrainingLocation = "Gym",
+                Instructions = "Perform controlled repetitions."
+            });
+
+        Assert.Equal(HttpStatusCode.Created, exerciseResponse.StatusCode);
+
+        var exercise = await exerciseResponse.Content
+            .ReadFromJsonAsync<ExerciseResponse>();
+
+        Assert.NotNull(exercise);
+
+        // 4. Assign exercise to V1 workout day
+        var assignmentResponse = await client.PostAsJsonAsync(
+            $"/api/admin/workout-plans/{original.Id}/days/{originalDay.Id}/exercises",
+            new AddWorkoutPlanExerciseRequest
+            {
+                ExerciseId = exercise.Id,
+                ExerciseOrder = 1,
+                Sets = 3,
+                Reps = 12,
+                RestSeconds = 90,
+                Notes = "Maintain proper form."
+            });
+
+        Assert.Equal(HttpStatusCode.Created, assignmentResponse.StatusCode);
+
+        // 5. Retrieve V1 before version creation
+        var version1Before = await client
+            .GetFromJsonAsync<WorkoutPlanDetailResponse>(
+                $"/api/admin/workout-plans/{original.Id}");
+
+        Assert.NotNull(version1Before);
+
+        var v1DayBefore = Assert.Single(version1Before.Days);
+        var v1ExerciseBefore = Assert.Single(v1DayBefore.Exercises);
+
+        // 6. Create Workout Plan V2
+        var versionResponse = await client.PostAsync(
+            $"/api/admin/workout-plans/{original.Id}/versions",
+            null);
+
+        Assert.Equal(HttpStatusCode.Created, versionResponse.StatusCode);
+
+        using var versionDocument = await System.Text.Json.JsonDocument
+            .ParseAsync(await versionResponse.Content.ReadAsStreamAsync());
+
+        var version2Id = versionDocument.RootElement
+            .GetProperty("id")
+            .GetGuid();
+
+        Assert.NotEqual(original.Id, version2Id);
+
+        // 7. Retrieve V2
+        var version2 = await client
+            .GetFromJsonAsync<WorkoutPlanDetailResponse>(
+                $"/api/admin/workout-plans/{version2Id}");
+
+        Assert.NotNull(version2);
+
+        var v2Day = Assert.Single(version2.Days);
+        var v2Exercise = Assert.Single(v2Day.Exercises);
+
+        // 8. Verify new IDs for cloned records
+        Assert.NotEqual(v1DayBefore.Id, v2Day.Id);
+
+        Assert.NotEqual(
+            v1ExerciseBefore.Id,
+            v2Exercise.Id);
+
+        Assert.Equal(version2Id, v2Day.WorkoutPlanId);
+
+        // 9. Verify exercise catalog reference is preserved
+        Assert.Equal(
+            v1ExerciseBefore.ExerciseId,
+            v2Exercise.ExerciseId);
+
+        Assert.Equal(
+            v1ExerciseBefore.ExerciseCode,
+            v2Exercise.ExerciseCode);
+
+        Assert.Equal(
+            v1ExerciseBefore.ExerciseName,
+            v2Exercise.ExerciseName);
+
+        // 10. Verify exercise configuration is preserved
+        Assert.Equal(
+            v1ExerciseBefore.ExerciseOrder,
+            v2Exercise.ExerciseOrder);
+
+        Assert.Equal(
+            v1ExerciseBefore.Sets,
+            v2Exercise.Sets);
+
+        Assert.Equal(
+            v1ExerciseBefore.Reps,
+            v2Exercise.Reps);
+
+        Assert.Equal(
+            v1ExerciseBefore.RestSeconds,
+            v2Exercise.RestSeconds);
+
+        Assert.Equal(
+            v1ExerciseBefore.DurationSeconds,
+            v2Exercise.DurationSeconds);
+
+        Assert.Equal(
+            v1ExerciseBefore.Notes,
+            v2Exercise.Notes);
+
+        // 11. Verify original V1 records remain unchanged
+        var version1After = await client
+            .GetFromJsonAsync<WorkoutPlanDetailResponse>(
+                $"/api/admin/workout-plans/{original.Id}");
+
+        Assert.NotNull(version1After);
+
+        var v1DayAfter = Assert.Single(version1After.Days);
+        var v1ExerciseAfter = Assert.Single(v1DayAfter.Exercises);
+
+        Assert.Equal(v1DayBefore.Id, v1DayAfter.Id);
+        Assert.Equal(v1ExerciseBefore.Id, v1ExerciseAfter.Id);
+
+        Assert.Equal(
+            v1ExerciseBefore.ExerciseId,
+            v1ExerciseAfter.ExerciseId);
+
+        Assert.Equal(
+            v1ExerciseBefore.Sets,
+            v1ExerciseAfter.Sets);
+
+        Assert.Equal(
+            v1ExerciseBefore.Reps,
+            v1ExerciseAfter.Reps);
+
+        Assert.Equal(
+            v1ExerciseBefore.RestSeconds,
+            v1ExerciseAfter.RestSeconds);
+
+        Assert.Equal(
+            v1ExerciseBefore.Notes,
+            v1ExerciseAfter.Notes);
+    }
+
+    // ============================================================
+    // Step 10.29.42.14
+    // Unauthenticated users cannot create workout plan versions
+    // ============================================================
+
+    [Fact]
+    public async Task UnauthenticatedUser_CannotCreateWorkoutPlanVersion()
+    {
+        // Arrange
+        using var factory = new FitnessPlatformWebApplicationFactory();
+
+        using var client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions
+            {
+                AllowAutoRedirect = false
+            });
+
+        // Act
+        var response = await client.PostAsync(
+            $"/api/admin/workout-plans/{Guid.NewGuid()}/versions",
+            null);
+
+        // Assert
+        Assert.Equal(
+            HttpStatusCode.Unauthorized,
+            response.StatusCode);
+    }
+
+    // ============================================================
+    // Step 10.29.42.15
+    // Members cannot create workout plan versions
+    // ============================================================
+
+    [Fact]
+    public async Task Member_CannotCreateWorkoutPlanVersion()
+    {
+        // Arrange
+        using var factory = new FitnessPlatformWebApplicationFactory();
+
+        await TestIdentitySeeder.SeedAsync(factory.Services);
+
+        using var client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions
+            {
+                AllowAutoRedirect = false
+            });
+
+        // Authenticate as Member
+        var loginResponse = await client.PostAsJsonAsync(
+            "/api/auth/login",
+            new
+            {
+                Email = TestIdentitySeeder.Member1Email,
+                Password = TestIdentitySeeder.TestPassword
+            });
+
+        Assert.Equal(HttpStatusCode.OK, loginResponse.StatusCode);
+
+        var login = await loginResponse.Content
+            .ReadFromJsonAsync<LoginTestResponse>();
+
+        Assert.NotNull(login);
+        Assert.False(string.IsNullOrWhiteSpace(login.AccessToken));
+
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue(
+                "Bearer",
+                login.AccessToken);
+
+        // Act
+        var response = await client.PostAsync(
+            $"/api/admin/workout-plans/{Guid.NewGuid()}/versions",
+            null);
+
+        // Assert
+        Assert.Equal(
+            HttpStatusCode.Forbidden,
+            response.StatusCode);
+    }
+
+    // ============================================================
+    // Step 10.29.42.16
+    // Creating a version of a nonexistent plan returns 404
+    // ============================================================
+
+    [Fact]
+    public async Task Admin_CannotCreateVersionOfNonexistentWorkoutPlan()
+    {
+        // Arrange
+        using var factory = new FitnessPlatformWebApplicationFactory();
+
+        await TestIdentitySeeder.SeedAsync(factory.Services);
+
+        using var client = factory.CreateClient();
+
+        await AuthenticateDuplicationAdminAsync(client);
+
+        var nonexistentPlanId = Guid.NewGuid();
+
+        // Act
+        var response = await client.PostAsync(
+            $"/api/admin/workout-plans/{nonexistentPlanId}/versions",
+            null);
+
+        // Assert
+        Assert.Equal(
+            HttpStatusCode.NotFound,
+            response.StatusCode);
+    }
+
+    // ============================================================
+    // Step 10.29.42.17
+    // Prevent version creation from historical workout plans
+    // ============================================================
+
+    [Fact]
+    public async Task Admin_CannotCreateVersionFromHistoricalWorkoutPlan()
+    {
+        // Arrange
+        using var factory = new FitnessPlatformWebApplicationFactory();
+
+        await TestIdentitySeeder.SeedAsync(factory.Services);
+
+        using var client = factory.CreateClient();
+
+        await AuthenticateDuplicationAdminAsync(client);
+
+        // 1. Create V1
+        var version1 = await CreateDuplicationTestPlanAsync(client);
+
+        // 2. Create V2 from V1
+        var version2Response = await client.PostAsync(
+            $"/api/admin/workout-plans/{version1.Id}/versions",
+            null);
+
+        Assert.Equal(
+            HttpStatusCode.Created,
+            version2Response.StatusCode);
+
+        using var version2Document =
+            await System.Text.Json.JsonDocument.ParseAsync(
+                await version2Response.Content.ReadAsStreamAsync());
+
+        var version2Id = version2Document.RootElement
+            .GetProperty("id")
+            .GetGuid();
+
+        Assert.NotEqual(version1.Id, version2Id);
+
+        // 3. Attempt to create another version from V1
+        var outdatedResponse = await client.PostAsync(
+            $"/api/admin/workout-plans/{version1.Id}/versions",
+            null);
+
+        Assert.Equal(
+            HttpStatusCode.Conflict,
+            outdatedResponse.StatusCode);
+
+        // 4. Create V3 from V2
+        var version3Response = await client.PostAsync(
+            $"/api/admin/workout-plans/{version2Id}/versions",
+            null);
+
+        Assert.Equal(
+            HttpStatusCode.Created,
+            version3Response.StatusCode);
+
+        using var version3Document =
+            await System.Text.Json.JsonDocument.ParseAsync(
+                await version3Response.Content.ReadAsStreamAsync());
+
+        var version3 = version3Document.RootElement;
+
+        var version3Id = version3
+            .GetProperty("id")
+            .GetGuid();
+
+        Assert.Equal(
+            3,
+            version3.GetProperty("versionNumber").GetInt32());
+
+        Assert.Equal(
+            version1.Id,
+            version3.GetProperty("versionGroupId").GetGuid());
+
+        Assert.Equal(
+            version2Id,
+            version3.GetProperty("previousVersionId").GetGuid());
+
+        Assert.True(
+            version3.GetProperty("isLatestVersion").GetBoolean());
+
+        // 5. Attempt to create another version from V2
+        var outdatedV2Response = await client.PostAsync(
+            $"/api/admin/workout-plans/{version2Id}/versions",
+            null);
+
+        Assert.Equal(
+            HttpStatusCode.Conflict,
+            outdatedV2Response.StatusCode);
+
+        // 6. Verify version history
+        var historyResponse = await client.GetAsync(
+            $"/api/admin/workout-plans/{version1.Id}/versions");
+
+        Assert.Equal(
+            HttpStatusCode.OK,
+            historyResponse.StatusCode);
+
+        using var historyDocument =
+            await System.Text.Json.JsonDocument.ParseAsync(
+                await historyResponse.Content.ReadAsStreamAsync());
+
+        var history = historyDocument.RootElement;
+
+        Assert.Equal(
+            3,
+            history.GetProperty("totalVersions").GetInt32());
+
+        var versions = history.GetProperty("versions");
+
+        Assert.Equal(3, versions.GetArrayLength());
+
+        // Verify descending order
+        Assert.Equal(
+            3,
+            versions[0].GetProperty("versionNumber").GetInt32());
+
+        Assert.Equal(
+            2,
+            versions[1].GetProperty("versionNumber").GetInt32());
+
+        Assert.Equal(
+            1,
+            versions[2].GetProperty("versionNumber").GetInt32());
+
+        // Only V3 should be latest
+        Assert.True(
+            versions[0].GetProperty("isLatestVersion").GetBoolean());
+
+        Assert.False(
+            versions[1].GetProperty("isLatestVersion").GetBoolean());
+
+        Assert.False(
+            versions[2].GetProperty("isLatestVersion").GetBoolean());
+
+        Assert.Equal(
+            version3Id,
+            versions[0].GetProperty("id").GetGuid());
+    }
+
+    // ============================================================
+    // Step 10.29.42.18
+    // Verify retrieval of specific workout plan versions
+    // ============================================================
+
+    [Fact]
+    public async Task Admin_CanRetrieveSpecificWorkoutPlanVersion()
+    {
+        // Arrange
+        using var factory = new FitnessPlatformWebApplicationFactory();
+
+        await TestIdentitySeeder.SeedAsync(factory.Services);
+
+        using var client = factory.CreateClient();
+
+        await AuthenticateDuplicationAdminAsync(client);
+
+        // 1. Create V1
+        var version1 = await CreateDuplicationTestPlanAsync(client);
+
+        // 2. Create V2
+        var version2Response = await client.PostAsync(
+            $"/api/admin/workout-plans/{version1.Id}/versions",
+            null);
+
+        Assert.Equal(
+            HttpStatusCode.Created,
+            version2Response.StatusCode);
+
+        using var version2Document =
+            await System.Text.Json.JsonDocument.ParseAsync(
+                await version2Response.Content.ReadAsStreamAsync());
+
+        var version2Id = version2Document.RootElement
+            .GetProperty("id")
+            .GetGuid();
+
+        // 3. Create V3
+        var version3Response = await client.PostAsync(
+            $"/api/admin/workout-plans/{version2Id}/versions",
+            null);
+
+        Assert.Equal(
+            HttpStatusCode.Created,
+            version3Response.StatusCode);
+
+        using var version3Document =
+            await System.Text.Json.JsonDocument.ParseAsync(
+                await version3Response.Content.ReadAsStreamAsync());
+
+        var version3Id = version3Document.RootElement
+            .GetProperty("id")
+            .GetGuid();
+
+        // 4. Retrieve V1
+        var getV1Response = await client.GetAsync(
+            $"/api/admin/workout-plans/{version1.Id}/versions/1");
+
+        Assert.Equal(
+            HttpStatusCode.OK,
+            getV1Response.StatusCode);
+
+        using var v1Document =
+            await System.Text.Json.JsonDocument.ParseAsync(
+                await getV1Response.Content.ReadAsStreamAsync());
+
+        var v1 = v1Document.RootElement;
+
+        Assert.Equal(
+            version1.Id,
+            v1.GetProperty("id").GetGuid());
+
+        Assert.Equal(
+            1,
+            v1.GetProperty("versionNumber").GetInt32());
+
+        Assert.False(
+            v1.GetProperty("isLatestVersion").GetBoolean());
+
+        // 5. Retrieve V2 using the original V1 plan ID
+        var getV2Response = await client.GetAsync(
+            $"/api/admin/workout-plans/{version1.Id}/versions/2");
+
+        Assert.Equal(
+            HttpStatusCode.OK,
+            getV2Response.StatusCode);
+
+        using var v2Document =
+            await System.Text.Json.JsonDocument.ParseAsync(
+                await getV2Response.Content.ReadAsStreamAsync());
+
+        var v2 = v2Document.RootElement;
+
+        Assert.Equal(
+            version2Id,
+            v2.GetProperty("id").GetGuid());
+
+        Assert.Equal(
+            2,
+            v2.GetProperty("versionNumber").GetInt32());
+
+        Assert.False(
+            v2.GetProperty("isLatestVersion").GetBoolean());
+
+        Assert.Equal(
+            version1.Id,
+            v2.GetProperty("versionGroupId").GetGuid());
+
+        // 6. Retrieve V3 using V2 plan ID
+        var getV3Response = await client.GetAsync(
+            $"/api/admin/workout-plans/{version2Id}/versions/3");
+
+        Assert.Equal(
+            HttpStatusCode.OK,
+            getV3Response.StatusCode);
+
+        using var v3Document =
+            await System.Text.Json.JsonDocument.ParseAsync(
+                await getV3Response.Content.ReadAsStreamAsync());
+
+        var v3 = v3Document.RootElement;
+
+        Assert.Equal(
+            version3Id,
+            v3.GetProperty("id").GetGuid());
+
+        Assert.Equal(
+            3,
+            v3.GetProperty("versionNumber").GetInt32());
+
+        Assert.True(
+            v3.GetProperty("isLatestVersion").GetBoolean());
+
+        Assert.Equal(
+            version1.Id,
+            v3.GetProperty("versionGroupId").GetGuid());
+
+        Assert.Equal(
+            version2Id,
+            v3.GetProperty("previousVersionId").GetGuid());
+    }
+
+    // ============================================================
+    // Step 10.29.42.19
+    // Validate invalid and nonexistent workout plan versions
+    // ============================================================
+
+    [Fact]
+    public async Task Admin_GetSpecificWorkoutPlanVersion_ValidatesVersionNumber()
+    {
+        // Arrange
+        using var factory = new FitnessPlatformWebApplicationFactory();
+
+        await TestIdentitySeeder.SeedAsync(factory.Services);
+
+        using var client = factory.CreateClient();
+
+        await AuthenticateDuplicationAdminAsync(client);
+
+        // Create V1
+        var original = await CreateDuplicationTestPlanAsync(client);
+
+        // Test 1: Version 0
+        var zeroResponse = await client.GetAsync(
+            $"/api/admin/workout-plans/{original.Id}/versions/0");
+
+        Assert.Equal(
+            HttpStatusCode.BadRequest,
+            zeroResponse.StatusCode);
+
+        // Test 2: Negative version
+        var negativeResponse = await client.GetAsync(
+            $"/api/admin/workout-plans/{original.Id}/versions/-1");
+
+        Assert.Equal(
+            HttpStatusCode.BadRequest,
+            negativeResponse.StatusCode);
+
+        // Test 3: Nonexistent version 99
+        var missingVersionResponse = await client.GetAsync(
+            $"/api/admin/workout-plans/{original.Id}/versions/99");
+
+        Assert.Equal(
+            HttpStatusCode.NotFound,
+            missingVersionResponse.StatusCode);
+
+        // Test 4: Nonexistent workout plan
+        var missingPlanResponse = await client.GetAsync(
+            $"/api/admin/workout-plans/{Guid.NewGuid()}/versions/1");
+
+        Assert.Equal(
+            HttpStatusCode.NotFound,
+            missingPlanResponse.StatusCode);
+
+        // Test 5: Valid version 1
+        var validResponse = await client.GetAsync(
+            $"/api/admin/workout-plans/{original.Id}/versions/1");
+
+        Assert.Equal(
+            HttpStatusCode.OK,
+            validResponse.StatusCode);
+
+        using var document =
+            await System.Text.Json.JsonDocument.ParseAsync(
+                await validResponse.Content.ReadAsStreamAsync());
+
+        Assert.Equal(
+            original.Id,
+            document.RootElement.GetProperty("id").GetGuid());
+
+        Assert.Equal(
+            1,
+            document.RootElement.GetProperty("versionNumber").GetInt32());
+    }
+
+    // ============================================================
+    // Step 10.29.42.20.3
+    // Historical workout plans cannot be updated
+    // Latest workout plans remain editable
+    // ============================================================
+
+    [Fact]
+    public async Task Admin_CannotUpdateHistoricalWorkoutPlanVersion()
+    {
+        // Arrange
+        using var factory = new FitnessPlatformWebApplicationFactory();
+
+        await TestIdentitySeeder.SeedAsync(factory.Services);
+
+        using var client = factory.CreateClient();
+
+        await AuthenticateDuplicationAdminAsync(client);
+
+        // 1. Create V1
+        var version1 = await CreateDuplicationTestPlanAsync(client);
+
+        // 2. Create V2 from V1
+        var version2Response = await client.PostAsync(
+            $"/api/admin/workout-plans/{version1.Id}/versions",
+            null);
+
+        Assert.Equal(
+            HttpStatusCode.Created,
+            version2Response.StatusCode);
+
+        using var version2Document =
+            await System.Text.Json.JsonDocument.ParseAsync(
+                await version2Response.Content.ReadAsStreamAsync());
+
+        var version2Id = version2Document.RootElement
+            .GetProperty("id")
+            .GetGuid();
+
+        // 3. Prepare valid update request
+        var updateRequest = new UpdateWorkoutPlanRequest
+        {
+            Name = "Updated Workout Plan",
+            Description = "Updated workout plan description.",
+            GoalCode = "WEIGHT_LOSS",
+            ExperienceLevel = "Beginner",
+            TrainingLocation = "Gym",
+            DaysPerWeek = 5,
+            DurationWeeks = 12
+        };
+
+        // 4. Attempt to update historical V1
+        var historicalUpdateResponse = await client.PutAsJsonAsync(
+            $"/api/admin/workout-plans/{version1.Id}",
+            updateRequest);
+
+        Assert.Equal(
+            HttpStatusCode.Conflict,
+            historicalUpdateResponse.StatusCode);
+
+        // 5. Update latest V2
+        var latestUpdateResponse = await client.PutAsJsonAsync(
+            $"/api/admin/workout-plans/{version2Id}",
+            updateRequest);
+
+        Assert.Equal(
+            HttpStatusCode.OK,
+            latestUpdateResponse.StatusCode);
+
+        // 6. Verify latest version was updated
+        var updatedPlan = await latestUpdateResponse.Content
+            .ReadFromJsonAsync<WorkoutPlanResponse>();
+
+        Assert.NotNull(updatedPlan);
+
+        Assert.Equal(
+            version2Id,
+            updatedPlan.Id);
+
+        Assert.Equal(
+            "Updated Workout Plan",
+            updatedPlan.Name);
+
+        // 7. Verify original V1 was not modified
+        var originalPlan = await client.GetFromJsonAsync<WorkoutPlanDetailResponse>(
+            $"/api/admin/workout-plans/{version1.Id}");
+
+        Assert.NotNull(originalPlan);
+
+        Assert.Equal(
+            version1.Name,
+            originalPlan.Name);
+    }
+
+    // ============================================================
+    // Step 10.29.42.20.5
+    // Historical workout plans cannot have new workout days
+    // Latest workout plans can have new workout days
+    // ============================================================
+
+    [Fact]
+    public async Task Admin_CannotAddWorkoutDayToHistoricalVersion()
+    {
+        // Arrange
+        using var factory = new FitnessPlatformWebApplicationFactory();
+
+        await TestIdentitySeeder.SeedAsync(factory.Services);
+
+        using var client = factory.CreateClient();
+
+        await AuthenticateDuplicationAdminAsync(client);
+
+        // 1. Create V1
+        var version1 = await CreateDuplicationTestPlanAsync(client);
+
+        // 2. Create V2
+        var version2Response = await client.PostAsync(
+            $"/api/admin/workout-plans/{version1.Id}/versions",
+            null);
+
+        Assert.Equal(
+            HttpStatusCode.Created,
+            version2Response.StatusCode);
+
+        using var version2Document =
+            await System.Text.Json.JsonDocument.ParseAsync(
+                await version2Response.Content.ReadAsStreamAsync());
+
+        var version2Id = version2Document.RootElement
+            .GetProperty("id")
+            .GetGuid();
+
+        // 3. Prepare workout day request
+        var dayRequest = new CreateWorkoutPlanDayRequest
+        {
+            DayNumber = 1,
+            Name = "Chest Day",
+            Description = "Upper body chest workout.",
+            IsRestDay = false,
+            EstimatedDurationMinutes = 60
+        };
+
+        // 4. Attempt to add workout day to historical V1
+        var historicalResponse = await client.PostAsJsonAsync(
+            $"/api/admin/workout-plans/{version1.Id}/days",
+            dayRequest);
+
+        Assert.Equal(
+            HttpStatusCode.Conflict,
+            historicalResponse.StatusCode);
+
+        // 5. Add workout day to latest V2
+        var latestResponse = await client.PostAsJsonAsync(
+            $"/api/admin/workout-plans/{version2Id}/days",
+            dayRequest);
+
+        Assert.Equal(
+            HttpStatusCode.Created,
+            latestResponse.StatusCode);
+
+        // 6. Verify V1 remains unchanged
+        var originalPlan = await client.GetFromJsonAsync<WorkoutPlanDetailResponse>(
+            $"/api/admin/workout-plans/{version1.Id}");
+
+        Assert.NotNull(originalPlan);
+        Assert.Empty(originalPlan.Days);
+
+        // 7. Verify V2 contains the workout day
+        var latestPlan = await client.GetFromJsonAsync<WorkoutPlanDetailResponse>(
+            $"/api/admin/workout-plans/{version2Id}");
+
+        Assert.NotNull(latestPlan);
+
+        var createdDay = Assert.Single(latestPlan.Days);
+
+        Assert.Equal(1, createdDay.DayNumber);
+        Assert.Equal("Chest Day", createdDay.Name);
+        Assert.Equal(60, createdDay.EstimatedDurationMinutes);
+    }
+
+    // ============================================================
+    // Step 10.29.42.20.7
+    // Historical workout days cannot be updated
+    // Latest workout days remain editable
+    // ============================================================
+
+    [Fact]
+    public async Task Admin_CannotUpdateWorkoutDayInHistoricalVersion()
+    {
+        // Arrange
+        using var factory = new FitnessPlatformWebApplicationFactory();
+
+        await TestIdentitySeeder.SeedAsync(factory.Services);
+
+        using var client = factory.CreateClient();
+
+        await AuthenticateDuplicationAdminAsync(client);
+
+        // 1. Create V1
+        var version1 = await CreateDuplicationTestPlanAsync(client);
+
+        // 2. Add a workout day to V1
+        var createDayRequest = new CreateWorkoutPlanDayRequest
+        {
+            DayNumber = 1,
+            Name = "Chest Day",
+            Description = "Original chest workout.",
+            IsRestDay = false,
+            EstimatedDurationMinutes = 60
+        };
+
+        var createDayResponse = await client.PostAsJsonAsync(
+            $"/api/admin/workout-plans/{version1.Id}/days",
+            createDayRequest);
+
+        Assert.Equal(
+            HttpStatusCode.Created,
+            createDayResponse.StatusCode);
+
+        var originalDay = await createDayResponse.Content
+            .ReadFromJsonAsync<WorkoutPlanDayResponse>();
+
+        Assert.NotNull(originalDay);
+
+        // 3. Create V2 from V1
+        var version2Response = await client.PostAsync(
+            $"/api/admin/workout-plans/{version1.Id}/versions",
+            null);
+
+        Assert.Equal(
+            HttpStatusCode.Created,
+            version2Response.StatusCode);
+
+        using var version2Document =
+            await System.Text.Json.JsonDocument.ParseAsync(
+                await version2Response.Content.ReadAsStreamAsync());
+
+        var version2Id = version2Document.RootElement
+            .GetProperty("id")
+            .GetGuid();
+
+        // 4. Retrieve V2 and identify its cloned workout day
+        var version2Details = await client
+            .GetFromJsonAsync<WorkoutPlanDetailResponse>(
+                $"/api/admin/workout-plans/{version2Id}");
+
+        Assert.NotNull(version2Details);
+
+        var clonedDay = Assert.Single(version2Details.Days);
+
+        Assert.NotEqual(originalDay.Id, clonedDay.Id);
+
+        // 5. Prepare update request
+        var updateRequest = new UpdateWorkoutPlanDayRequest
+        {
+            DayNumber = 1,
+            Name = "Updated Chest Day",
+            Description = "Updated chest workout.",
+            IsRestDay = false,
+            EstimatedDurationMinutes = 75
+        };
+
+        // 6. Attempt to update historical V1 workout day
+        var historicalUpdateResponse = await client.PutAsJsonAsync(
+            $"/api/admin/workout-plans/{version1.Id}/days/{originalDay.Id}",
+            updateRequest);
+
+        Assert.Equal(
+            HttpStatusCode.Conflict,
+            historicalUpdateResponse.StatusCode);
+
+        // 7. Update latest V2 workout day
+        var latestUpdateResponse = await client.PutAsJsonAsync(
+            $"/api/admin/workout-plans/{version2Id}/days/{clonedDay.Id}",
+            updateRequest);
+
+        Assert.Equal(
+            HttpStatusCode.OK,
+            latestUpdateResponse.StatusCode);
+
+        // 8. Verify V1 remains unchanged
+        var originalPlanDetails = await client
+            .GetFromJsonAsync<WorkoutPlanDetailResponse>(
+                $"/api/admin/workout-plans/{version1.Id}");
+
+        Assert.NotNull(originalPlanDetails);
+
+        var unchangedDay = Assert.Single(originalPlanDetails.Days);
+
+        Assert.Equal(originalDay.Id, unchangedDay.Id);
+        Assert.Equal("Chest Day", unchangedDay.Name);
+        Assert.Equal("Original chest workout.", unchangedDay.Description);
+        Assert.Equal(60, unchangedDay.EstimatedDurationMinutes);
+
+        // 9. Verify V2 contains updated workout day
+        var updatedVersion2Details = await client
+            .GetFromJsonAsync<WorkoutPlanDetailResponse>(
+                $"/api/admin/workout-plans/{version2Id}");
+
+        Assert.NotNull(updatedVersion2Details);
+
+        var updatedDay = Assert.Single(updatedVersion2Details.Days);
+
+        Assert.Equal(clonedDay.Id, updatedDay.Id);
+        Assert.Equal("Updated Chest Day", updatedDay.Name);
+        Assert.Equal("Updated chest workout.", updatedDay.Description);
+        Assert.Equal(75, updatedDay.EstimatedDurationMinutes);
+    }
+
+    // ============================================================
+    // Step 10.29.42.20.9
+    // Historical workout days cannot be deleted
+    // Latest workout days can be deleted
+    // ============================================================
+
+    [Fact]
+    public async Task Admin_CannotDeleteWorkoutDayFromHistoricalVersion()
+    {
+        // Arrange
+        using var factory = new FitnessPlatformWebApplicationFactory();
+
+        await TestIdentitySeeder.SeedAsync(factory.Services);
+
+        using var client = factory.CreateClient();
+
+        await AuthenticateDuplicationAdminAsync(client);
+
+        // 1. Create V1
+        var version1 = await CreateDuplicationTestPlanAsync(client);
+
+        // 2. Add Chest Day to V1
+        var createDayRequest = new CreateWorkoutPlanDayRequest
+        {
+            DayNumber = 1,
+            Name = "Chest Day",
+            Description = "Original chest workout.",
+            IsRestDay = false,
+            EstimatedDurationMinutes = 60
+        };
+
+        var createDayResponse = await client.PostAsJsonAsync(
+            $"/api/admin/workout-plans/{version1.Id}/days",
+            createDayRequest);
+
+        Assert.Equal(
+            HttpStatusCode.Created,
+            createDayResponse.StatusCode);
+
+        var originalDay = await createDayResponse.Content
+            .ReadFromJsonAsync<WorkoutPlanDayResponse>();
+
+        Assert.NotNull(originalDay);
+
+        // 3. Create V2 from V1
+        var version2Response = await client.PostAsync(
+            $"/api/admin/workout-plans/{version1.Id}/versions",
+            null);
+
+        Assert.Equal(
+            HttpStatusCode.Created,
+            version2Response.StatusCode);
+
+        using var version2Document =
+            await System.Text.Json.JsonDocument.ParseAsync(
+                await version2Response.Content.ReadAsStreamAsync());
+
+        var version2Id = version2Document.RootElement
+            .GetProperty("id")
+            .GetGuid();
+
+        // 4. Retrieve V2 and identify cloned workout day
+        var version2Details = await client
+            .GetFromJsonAsync<WorkoutPlanDetailResponse>(
+                $"/api/admin/workout-plans/{version2Id}");
+
+        Assert.NotNull(version2Details);
+
+        var clonedDay = Assert.Single(version2Details.Days);
+
+        Assert.NotEqual(originalDay.Id, clonedDay.Id);
+
+        // 5. Attempt to delete Chest Day from historical V1
+        var historicalDeleteResponse = await client.DeleteAsync(
+            $"/api/admin/workout-plans/{version1.Id}/days/{originalDay.Id}");
+
+        Assert.Equal(
+            HttpStatusCode.Conflict,
+            historicalDeleteResponse.StatusCode);
+
+        // 6. Delete Chest Day from latest V2
+        var latestDeleteResponse = await client.DeleteAsync(
+            $"/api/admin/workout-plans/{version2Id}/days/{clonedDay.Id}");
+
+        Assert.Equal(
+            HttpStatusCode.NoContent,
+            latestDeleteResponse.StatusCode);
+
+        // 7. Verify V1 still contains Chest Day
+        var originalPlanDetails = await client
+            .GetFromJsonAsync<WorkoutPlanDetailResponse>(
+                $"/api/admin/workout-plans/{version1.Id}");
+
+        Assert.NotNull(originalPlanDetails);
+
+        var unchangedDay = Assert.Single(originalPlanDetails.Days);
+
+        Assert.Equal(originalDay.Id, unchangedDay.Id);
+        Assert.Equal("Chest Day", unchangedDay.Name);
+        Assert.Equal("Original chest workout.", unchangedDay.Description);
+
+        // 8. Verify V2 no longer contains Chest Day
+        var updatedVersion2Details = await client
+            .GetFromJsonAsync<WorkoutPlanDetailResponse>(
+                $"/api/admin/workout-plans/{version2Id}");
+
+        Assert.NotNull(updatedVersion2Details);
+
+        Assert.Empty(updatedVersion2Details.Days);
+    }
+
+    // ============================================================
+    // Step 10.29.42.20.11
+    // Historical workout days cannot be reordered
+    // Latest workout days can be reordered
+    // ============================================================
+
+    [Fact]
+    public async Task Admin_CannotReorderWorkoutDaysInHistoricalVersion()
+    {
+        // Arrange
+        using var factory = new FitnessPlatformWebApplicationFactory();
+
+        await TestIdentitySeeder.SeedAsync(factory.Services);
+
+        using var client = factory.CreateClient();
+
+        await AuthenticateDuplicationAdminAsync(client);
+
+        // 1. Create V1
+        var version1 = await CreateDuplicationTestPlanAsync(client);
+
+        // 2. Add Chest Day to V1
+        var chestResponse = await client.PostAsJsonAsync(
+            $"/api/admin/workout-plans/{version1.Id}/days",
+            new CreateWorkoutPlanDayRequest
+            {
+                DayNumber = 1,
+                Name = "Chest Day",
+                Description = "Chest workout.",
+                IsRestDay = false,
+                EstimatedDurationMinutes = 60
+            });
+
+        Assert.Equal(HttpStatusCode.Created, chestResponse.StatusCode);
+
+        var chestDay = await chestResponse.Content
+            .ReadFromJsonAsync<WorkoutPlanDayResponse>();
+
+        Assert.NotNull(chestDay);
+
+        // 3. Add Back Day to V1
+        var backResponse = await client.PostAsJsonAsync(
+            $"/api/admin/workout-plans/{version1.Id}/days",
+            new CreateWorkoutPlanDayRequest
+            {
+                DayNumber = 2,
+                Name = "Back Day",
+                Description = "Back workout.",
+                IsRestDay = false,
+                EstimatedDurationMinutes = 60
+            });
+
+        Assert.Equal(HttpStatusCode.Created, backResponse.StatusCode);
+
+        var backDay = await backResponse.Content
+            .ReadFromJsonAsync<WorkoutPlanDayResponse>();
+
+        Assert.NotNull(backDay);
+
+        // 4. Create V2
+        var version2Response = await client.PostAsync(
+            $"/api/admin/workout-plans/{version1.Id}/versions",
+            null);
+
+        Assert.Equal(HttpStatusCode.Created, version2Response.StatusCode);
+
+        using var version2Document =
+            await System.Text.Json.JsonDocument.ParseAsync(
+                await version2Response.Content.ReadAsStreamAsync());
+
+        var version2Id = version2Document.RootElement
+            .GetProperty("id")
+            .GetGuid();
+
+        // 5. Retrieve cloned workout days from V2
+        var version2Details = await client
+            .GetFromJsonAsync<WorkoutPlanDetailResponse>(
+                $"/api/admin/workout-plans/{version2Id}");
+
+        Assert.NotNull(version2Details);
+        Assert.Equal(2, version2Details.Days.Count);
+
+        var clonedChestDay = Assert.Single(
+            version2Details.Days.Where(x => x.Name == "Chest Day"));
+
+        var clonedBackDay = Assert.Single(
+            version2Details.Days.Where(x => x.Name == "Back Day"));
+
+        Assert.NotEqual(chestDay.Id, clonedChestDay.Id);
+        Assert.NotEqual(backDay.Id, clonedBackDay.Id);
+
+        // 6. Prepare V1 reorder request
+        var historicalReorderRequest = new ReorderWorkoutPlanDaysRequest
+        {
+            Days = new()
+        {
+            new()
+            {
+                DayId = chestDay.Id,
+                DayNumber = 2
+            },
+            new()
+            {
+                DayId = backDay.Id,
+                DayNumber = 1
+            }
+        }
+        };
+
+        // 7. Attempt to reorder historical V1
+        var historicalResponse = await client.PutAsJsonAsync(
+            $"/api/admin/workout-plans/{version1.Id}/days/reorder",
+            historicalReorderRequest);
+
+        Assert.Equal(
+            HttpStatusCode.Conflict,
+            historicalResponse.StatusCode);
+
+        // 8. Prepare V2 reorder request
+        var latestReorderRequest = new ReorderWorkoutPlanDaysRequest
+        {
+            Days = new()
+        {
+            new()
+            {
+                DayId = clonedChestDay.Id,
+                DayNumber = 2
+            },
+            new()
+            {
+                DayId = clonedBackDay.Id,
+                DayNumber = 1
+            }
+        }
+        };
+
+        // 9. Reorder latest V2
+        var latestResponse = await client.PutAsJsonAsync(
+            $"/api/admin/workout-plans/{version2Id}/days/reorder",
+            latestReorderRequest);
+
+        Assert.Equal(
+            HttpStatusCode.OK,
+            latestResponse.StatusCode);
+
+        // 10. Verify V1 retains original ordering
+        var originalDetails = await client
+            .GetFromJsonAsync<WorkoutPlanDetailResponse>(
+                $"/api/admin/workout-plans/{version1.Id}");
+
+        Assert.NotNull(originalDetails);
+
+        Assert.Equal(
+            1,
+            Assert.Single(originalDetails.Days.Where(x => x.Id == chestDay.Id))
+                .DayNumber);
+
+        Assert.Equal(
+            2,
+            Assert.Single(originalDetails.Days.Where(x => x.Id == backDay.Id))
+                .DayNumber);
+
+        // 11. Verify V2 contains updated ordering
+        var updatedVersion2Details = await client
+            .GetFromJsonAsync<WorkoutPlanDetailResponse>(
+                $"/api/admin/workout-plans/{version2Id}");
+
+        Assert.NotNull(updatedVersion2Details);
+
+        Assert.Equal(
+            2,
+            Assert.Single(updatedVersion2Details.Days.Where(
+                x => x.Id == clonedChestDay.Id)).DayNumber);
+
+        Assert.Equal(
+            1,
+            Assert.Single(updatedVersion2Details.Days.Where(
+                x => x.Id == clonedBackDay.Id)).DayNumber);
+    }
+    // ============================================================
+    // Step 10.29.42.20.13
+    // Historical workout plans cannot accept new exercises.
+    // Latest workout plans can accept new exercises.
+    // ============================================================
+
+    [Fact]
+    public async Task Admin_CannotAddExerciseToHistoricalWorkoutPlanVersion()
+    {
+        // Arrange
+        using var factory = new FitnessPlatformWebApplicationFactory();
+
+        await TestIdentitySeeder.SeedAsync(factory.Services);
+
+        using var client = factory.CreateClient();
+
+        await AuthenticateDuplicationAdminAsync(client);
+
+        // 1. Create workout plan V1
+        var version1 = await CreateDuplicationTestPlanAsync(client);
+
+        // 2. Add Chest Day to V1
+        var createDayResponse = await client.PostAsJsonAsync(
+            $"/api/admin/workout-plans/{version1.Id}/days",
+            new CreateWorkoutPlanDayRequest
+            {
+                DayNumber = 1,
+                Name = "Chest Day",
+                Description = "Chest strength training.",
+                IsRestDay = false,
+                EstimatedDurationMinutes = 60
+            });
+
+        Assert.Equal(
+            HttpStatusCode.Created,
+            createDayResponse.StatusCode);
+
+        var originalDay = await createDayResponse.Content
+            .ReadFromJsonAsync<WorkoutPlanDayResponse>();
+
+        Assert.NotNull(originalDay);
+
+        // 3. Create an exercise in Exercise Master
+        var exerciseResponse = await client.PostAsJsonAsync(
+            "/api/exercises",
+            new SaveExerciseRequest
+            {
+                Code = $"VERSION-EX-{Guid.NewGuid():N}",
+                Name = "Versioning Test Bench Press",
+                Description = "Chest strength exercise.",
+                MuscleGroup = "Chest",
+                Equipment = "Barbell",
+                DifficultyLevel = "Beginner",
+                TrainingLocation = "Gym",
+                Instructions = "Perform controlled repetitions."
+            });
+
+        Assert.Equal(
+            HttpStatusCode.Created,
+            exerciseResponse.StatusCode);
+
+        var exercise = await exerciseResponse.Content
+            .ReadFromJsonAsync<ExerciseResponse>();
+
+        Assert.NotNull(exercise);
+
+        // 4. Create V2 from V1
+        var version2Response = await client.PostAsync(
+            $"/api/admin/workout-plans/{version1.Id}/versions",
+            null);
+
+        Assert.Equal(
+            HttpStatusCode.Created,
+            version2Response.StatusCode);
+
+        using var version2Document =
+            await System.Text.Json.JsonDocument.ParseAsync(
+                await version2Response.Content.ReadAsStreamAsync());
+
+        var version2Id = version2Document.RootElement
+            .GetProperty("id")
+            .GetGuid();
+
+        // 5. Retrieve cloned workout day from V2
+        var version2Details = await client
+            .GetFromJsonAsync<WorkoutPlanDetailResponse>(
+                $"/api/admin/workout-plans/{version2Id}");
+
+        Assert.NotNull(version2Details);
+
+        var clonedDay = Assert.Single(version2Details.Days);
+
+        Assert.NotEqual(originalDay.Id, clonedDay.Id);
+
+        // 6. Prepare exercise assignment
+        var assignmentRequest = new AddWorkoutPlanExerciseRequest
+        {
+            ExerciseId = exercise.Id,
+            ExerciseOrder = 1,
+            Sets = 3,
+            Reps = 12,
+            RestSeconds = 90,
+            DurationSeconds = null,
+            Notes = "Maintain proper form."
+        };
+
+        // 7. Attempt to add exercise to historical V1
+        var historicalResponse = await client.PostAsJsonAsync(
+            $"/api/admin/workout-plans/{version1.Id}/days/{originalDay.Id}/exercises",
+            assignmentRequest);
+
+        Assert.Equal(
+            HttpStatusCode.Conflict,
+            historicalResponse.StatusCode);
+
+        // 8. Add exercise to latest V2
+        var latestResponse = await client.PostAsJsonAsync(
+            $"/api/admin/workout-plans/{version2Id}/days/{clonedDay.Id}/exercises",
+            assignmentRequest);
+
+        Assert.Equal(
+            HttpStatusCode.Created,
+            latestResponse.StatusCode);
+
+        // 9. Verify V1 remains unchanged
+        var originalDetails = await client
+            .GetFromJsonAsync<WorkoutPlanDetailResponse>(
+                $"/api/admin/workout-plans/{version1.Id}");
+
+        Assert.NotNull(originalDetails);
+
+        var originalRetrievedDay = Assert.Single(originalDetails.Days);
+
+        Assert.Empty(originalRetrievedDay.Exercises);
+
+        // 10. Verify V2 contains the exercise
+        var updatedVersion2Details = await client
+            .GetFromJsonAsync<WorkoutPlanDetailResponse>(
+                $"/api/admin/workout-plans/{version2Id}");
+
+        Assert.NotNull(updatedVersion2Details);
+
+        var updatedDay = Assert.Single(updatedVersion2Details.Days);
+
+        var assignedExercise = Assert.Single(updatedDay.Exercises);
+
+        Assert.Equal(
+            exercise.Id,
+            assignedExercise.ExerciseId);
+
+        Assert.Equal(
+            exercise.Code,
+            assignedExercise.ExerciseCode);
+
+        Assert.Equal(
+            1,
+            assignedExercise.ExerciseOrder);
+
+        Assert.Equal(
+            3,
+            assignedExercise.Sets);
+
+        Assert.Equal(
+            12,
+            assignedExercise.Reps);
+
+        Assert.Equal(
+            90,
+            assignedExercise.RestSeconds);
+
+        Assert.Equal(
+            "Maintain proper form.",
+            assignedExercise.Notes);
+    }
+
+    // ============================================================
+    // Step 10.29.42.20.15
+    // Historical exercise assignments cannot be updated.
+    // Latest exercise assignments remain editable.
+    // ============================================================
+
+    [Fact]
+    public async Task Admin_CannotUpdateExerciseInHistoricalWorkoutPlanVersion()
+    {
+        // Arrange
+        using var factory = new FitnessPlatformWebApplicationFactory();
+
+        await TestIdentitySeeder.SeedAsync(factory.Services);
+
+        using var client = factory.CreateClient();
+
+        await AuthenticateDuplicationAdminAsync(client);
+
+        // 1. Create workout plan V1
+        var version1 = await CreateDuplicationTestPlanAsync(client);
+
+        // 2. Add Chest Day to V1
+        var dayResponse = await client.PostAsJsonAsync(
+            $"/api/admin/workout-plans/{version1.Id}/days",
+            new CreateWorkoutPlanDayRequest
+            {
+                DayNumber = 1,
+                Name = "Chest Day",
+                Description = "Chest strength training.",
+                IsRestDay = false,
+                EstimatedDurationMinutes = 60
+            });
+
+        Assert.Equal(HttpStatusCode.Created, dayResponse.StatusCode);
+
+        var originalDay = await dayResponse.Content
+            .ReadFromJsonAsync<WorkoutPlanDayResponse>();
+
+        Assert.NotNull(originalDay);
+
+        // 3. Create exercise in Exercise Master
+        var exerciseResponse = await client.PostAsJsonAsync(
+            "/api/exercises",
+            new SaveExerciseRequest
+            {
+                Code = $"VERSION-UPD-{Guid.NewGuid():N}",
+                Name = "Versioning Update Bench Press",
+                Description = "Chest strength exercise.",
+                MuscleGroup = "Chest",
+                Equipment = "Barbell",
+                DifficultyLevel = "Beginner",
+                TrainingLocation = "Gym",
+                Instructions = "Perform controlled repetitions."
+            });
+
+        Assert.Equal(HttpStatusCode.Created, exerciseResponse.StatusCode);
+
+        var exercise = await exerciseResponse.Content
+            .ReadFromJsonAsync<ExerciseResponse>();
+
+        Assert.NotNull(exercise);
+
+        // 4. Assign Bench Press to V1
+        var assignmentResponse = await client.PostAsJsonAsync(
+            $"/api/admin/workout-plans/{version1.Id}/days/{originalDay.Id}/exercises",
+            new AddWorkoutPlanExerciseRequest
+            {
+                ExerciseId = exercise.Id,
+                ExerciseOrder = 1,
+                Sets = 3,
+                Reps = 12,
+                RestSeconds = 90,
+                DurationSeconds = null,
+                Notes = "Original exercise assignment."
+            });
+
+        Assert.Equal(
+            HttpStatusCode.Created,
+            assignmentResponse.StatusCode);
+
+        // 5. Retrieve original assignment
+        var version1Details = await client
+            .GetFromJsonAsync<WorkoutPlanDetailResponse>(
+                $"/api/admin/workout-plans/{version1.Id}");
+
+        Assert.NotNull(version1Details);
+
+        var originalAssignment = Assert.Single(
+            Assert.Single(version1Details.Days).Exercises);
+
+        Assert.Equal(3, originalAssignment.Sets);
+        Assert.Equal(12, originalAssignment.Reps);
+
+        // 6. Create V2 from V1
+        var version2Response = await client.PostAsync(
+            $"/api/admin/workout-plans/{version1.Id}/versions",
+            null);
+
+        Assert.Equal(
+            HttpStatusCode.Created,
+            version2Response.StatusCode);
+
+        using var version2Document =
+            await System.Text.Json.JsonDocument.ParseAsync(
+                await version2Response.Content.ReadAsStreamAsync());
+
+        var version2Id = version2Document.RootElement
+            .GetProperty("id")
+            .GetGuid();
+
+        // 7. Retrieve cloned day and assignment
+        var version2Details = await client
+            .GetFromJsonAsync<WorkoutPlanDetailResponse>(
+                $"/api/admin/workout-plans/{version2Id}");
+
+        Assert.NotNull(version2Details);
+
+        var clonedDay = Assert.Single(version2Details.Days);
+        var clonedAssignment = Assert.Single(clonedDay.Exercises);
+
+        Assert.NotEqual(originalDay.Id, clonedDay.Id);
+        Assert.NotEqual(originalAssignment.Id, clonedAssignment.Id);
+
+        // 8. Prepare updated exercise assignment
+        var updateRequest = new UpdateWorkoutPlanExerciseRequest
+        {
+            ExerciseId = exercise.Id,
+            ExerciseOrder = 1,
+            Sets = 4,
+            Reps = 10,
+            RestSeconds = 120,
+            DurationSeconds = null,
+            Notes = "Updated exercise assignment."
+        };
+
+        // 9. Attempt to update historical V1
+        var historicalResponse = await client.PutAsJsonAsync(
+            $"/api/admin/workout-plans/{version1.Id}/days/{originalDay.Id}/exercises/{originalAssignment.Id}",
+            updateRequest);
+
+        Assert.Equal(
+            HttpStatusCode.Conflict,
+            historicalResponse.StatusCode);
+
+        // 10. Update latest V2
+        var latestResponse = await client.PutAsJsonAsync(
+            $"/api/admin/workout-plans/{version2Id}/days/{clonedDay.Id}/exercises/{clonedAssignment.Id}",
+            updateRequest);
+
+        Assert.Equal(
+            HttpStatusCode.OK,
+            latestResponse.StatusCode);
+
+        // 11. Verify historical V1 remains unchanged
+        var originalDetails = await client
+            .GetFromJsonAsync<WorkoutPlanDetailResponse>(
+                $"/api/admin/workout-plans/{version1.Id}");
+
+        Assert.NotNull(originalDetails);
+
+        var unchangedAssignment = Assert.Single(
+            Assert.Single(originalDetails.Days).Exercises);
+
+        Assert.Equal(3, unchangedAssignment.Sets);
+        Assert.Equal(12, unchangedAssignment.Reps);
+        Assert.Equal(90, unchangedAssignment.RestSeconds);
+
+        Assert.Equal(
+            "Original exercise assignment.",
+            unchangedAssignment.Notes);
+
+        // 12. Verify latest V2 contains updated values
+        var updatedVersion2Details = await client
+            .GetFromJsonAsync<WorkoutPlanDetailResponse>(
+                $"/api/admin/workout-plans/{version2Id}");
+
+        Assert.NotNull(updatedVersion2Details);
+
+        var updatedAssignment = Assert.Single(
+            Assert.Single(updatedVersion2Details.Days).Exercises);
+
+        Assert.Equal(4, updatedAssignment.Sets);
+        Assert.Equal(10, updatedAssignment.Reps);
+        Assert.Equal(120, updatedAssignment.RestSeconds);
+
+        Assert.Equal(
+            "Updated exercise assignment.",
+            updatedAssignment.Notes);
+    }
+
+    // ============================================================
+    // Step 10.29.42.20.17
+    // Historical exercise assignments cannot be deleted.
+    // Latest exercise assignments can be deleted.
+    // ============================================================
+
+    [Fact]
+    public async Task Admin_CannotDeleteExerciseFromHistoricalWorkoutPlanVersion()
+    {
+        // Arrange
+        using var factory = new FitnessPlatformWebApplicationFactory();
+
+        await TestIdentitySeeder.SeedAsync(factory.Services);
+
+        using var client = factory.CreateClient();
+
+        await AuthenticateDuplicationAdminAsync(client);
+
+        // 1. Create workout plan V1
+        var version1 = await CreateDuplicationTestPlanAsync(client);
+
+        // 2. Add Chest Day to V1
+        var dayResponse = await client.PostAsJsonAsync(
+            $"/api/admin/workout-plans/{version1.Id}/days",
+            new CreateWorkoutPlanDayRequest
+            {
+                DayNumber = 1,
+                Name = "Chest Day",
+                Description = "Chest strength training.",
+                IsRestDay = false,
+                EstimatedDurationMinutes = 60
+            });
+
+        Assert.Equal(HttpStatusCode.Created, dayResponse.StatusCode);
+
+        var originalDay = await dayResponse.Content
+            .ReadFromJsonAsync<WorkoutPlanDayResponse>();
+
+        Assert.NotNull(originalDay);
+
+        // 3. Create exercise in Exercise Master
+        var exerciseResponse = await client.PostAsJsonAsync(
+            "/api/exercises",
+            new SaveExerciseRequest
+            {
+                Code = $"VERSION-DEL-{Guid.NewGuid():N}",
+                Name = "Versioning Delete Bench Press",
+                Description = "Chest strength exercise.",
+                MuscleGroup = "Chest",
+                Equipment = "Barbell",
+                DifficultyLevel = "Beginner",
+                TrainingLocation = "Gym",
+                Instructions = "Perform controlled repetitions."
+            });
+
+        Assert.Equal(HttpStatusCode.Created, exerciseResponse.StatusCode);
+
+        var exercise = await exerciseResponse.Content
+            .ReadFromJsonAsync<ExerciseResponse>();
+
+        Assert.NotNull(exercise);
+
+        // 4. Assign Bench Press to V1
+        var assignmentResponse = await client.PostAsJsonAsync(
+            $"/api/admin/workout-plans/{version1.Id}/days/{originalDay.Id}/exercises",
+            new AddWorkoutPlanExerciseRequest
+            {
+                ExerciseId = exercise.Id,
+                ExerciseOrder = 1,
+                Sets = 3,
+                Reps = 12,
+                RestSeconds = 90,
+                DurationSeconds = null,
+                Notes = "Original exercise assignment."
+            });
+
+        Assert.Equal(
+            HttpStatusCode.Created,
+            assignmentResponse.StatusCode);
+
+        // 5. Retrieve original assignment
+        var version1Details = await client
+            .GetFromJsonAsync<WorkoutPlanDetailResponse>(
+                $"/api/admin/workout-plans/{version1.Id}");
+
+        Assert.NotNull(version1Details);
+
+        var originalAssignment = Assert.Single(
+            Assert.Single(version1Details.Days).Exercises);
+
+        Assert.Equal(exercise.Id, originalAssignment.ExerciseId);
+
+        // 6. Create V2 from V1
+        var version2Response = await client.PostAsync(
+            $"/api/admin/workout-plans/{version1.Id}/versions",
+            null);
+
+        Assert.Equal(
+            HttpStatusCode.Created,
+            version2Response.StatusCode);
+
+        using var version2Document =
+            await System.Text.Json.JsonDocument.ParseAsync(
+                await version2Response.Content.ReadAsStreamAsync());
+
+        var version2Id = version2Document.RootElement
+            .GetProperty("id")
+            .GetGuid();
+
+        // 7. Retrieve cloned workout day and exercise assignment
+        var version2Details = await client
+            .GetFromJsonAsync<WorkoutPlanDetailResponse>(
+                $"/api/admin/workout-plans/{version2Id}");
+
+        Assert.NotNull(version2Details);
+
+        var clonedDay = Assert.Single(version2Details.Days);
+        var clonedAssignment = Assert.Single(clonedDay.Exercises);
+
+        Assert.NotEqual(originalDay.Id, clonedDay.Id);
+        Assert.NotEqual(originalAssignment.Id, clonedAssignment.Id);
+
+        // 8. Attempt to delete assignment from historical V1
+        var historicalResponse = await client.DeleteAsync(
+            $"/api/admin/workout-plans/{version1.Id}/days/{originalDay.Id}/exercises/{originalAssignment.Id}");
+
+        Assert.Equal(
+            HttpStatusCode.Conflict,
+            historicalResponse.StatusCode);
+
+        // 9. Delete assignment from latest V2
+        var latestResponse = await client.DeleteAsync(
+            $"/api/admin/workout-plans/{version2Id}/days/{clonedDay.Id}/exercises/{clonedAssignment.Id}");
+
+        Assert.Equal(
+            HttpStatusCode.NoContent,
+            latestResponse.StatusCode);
+
+        // 10. Verify historical V1 retains its exercise
+        var originalDetails = await client
+            .GetFromJsonAsync<WorkoutPlanDetailResponse>(
+                $"/api/admin/workout-plans/{version1.Id}");
+
+        Assert.NotNull(originalDetails);
+
+        var unchangedDay = Assert.Single(originalDetails.Days);
+        var unchangedAssignment = Assert.Single(unchangedDay.Exercises);
+
+        Assert.Equal(
+            originalAssignment.Id,
+            unchangedAssignment.Id);
+
+        Assert.Equal(
+            exercise.Id,
+            unchangedAssignment.ExerciseId);
+
+        Assert.Equal(3, unchangedAssignment.Sets);
+        Assert.Equal(12, unchangedAssignment.Reps);
+        Assert.Equal(90, unchangedAssignment.RestSeconds);
+
+        // 11. Verify latest V2 no longer contains the exercise
+        var updatedVersion2Details = await client
+            .GetFromJsonAsync<WorkoutPlanDetailResponse>(
+                $"/api/admin/workout-plans/{version2Id}");
+
+        Assert.NotNull(updatedVersion2Details);
+
+        var updatedDay = Assert.Single(updatedVersion2Details.Days);
+
+        Assert.Empty(updatedDay.Exercises);
+    }
+
+    // ============================================================
+    // Step 10.29.42.20.19
+    // Historical exercise assignments cannot be reordered.
+    // Latest exercise assignments can be reordered.
+    // ============================================================
+
+    [Fact]
+    public async Task Admin_CannotReorderExercisesInHistoricalWorkoutPlanVersion()
+    {
+        // Arrange
+        using var factory = new FitnessPlatformWebApplicationFactory();
+
+        await TestIdentitySeeder.SeedAsync(factory.Services);
+
+        using var client = factory.CreateClient();
+
+        await AuthenticateDuplicationAdminAsync(client);
+
+        // 1. Create workout plan V1
+        var version1 = await CreateDuplicationTestPlanAsync(client);
+
+        // 2. Add Chest Day
+        var dayResponse = await client.PostAsJsonAsync(
+            $"/api/admin/workout-plans/{version1.Id}/days",
+            new CreateWorkoutPlanDayRequest
+            {
+                DayNumber = 1,
+                Name = "Chest Day",
+                Description = "Chest strength training.",
+                IsRestDay = false,
+                EstimatedDurationMinutes = 60
+            });
+
+        Assert.Equal(HttpStatusCode.Created, dayResponse.StatusCode);
+
+        var originalDay = await dayResponse.Content
+            .ReadFromJsonAsync<WorkoutPlanDayResponse>();
+
+        Assert.NotNull(originalDay);
+
+        // 3. Create Bench Press in Exercise Master
+        var benchResponse = await client.PostAsJsonAsync(
+            "/api/exercises",
+            new SaveExerciseRequest
+            {
+                Code = $"VERSION-BENCH-{Guid.NewGuid():N}",
+                Name = "Versioning Bench Press",
+                Description = "Chest strength exercise.",
+                MuscleGroup = "Chest",
+                Equipment = "Barbell",
+                DifficultyLevel = "Beginner",
+                TrainingLocation = "Gym",
+                Instructions = "Perform controlled repetitions."
+            });
+
+        Assert.Equal(HttpStatusCode.Created, benchResponse.StatusCode);
+
+        var benchExercise = await benchResponse.Content
+            .ReadFromJsonAsync<ExerciseResponse>();
+
+        Assert.NotNull(benchExercise);
+
+        // 4. Create Cable Fly in Exercise Master
+        var cableResponse = await client.PostAsJsonAsync(
+            "/api/exercises",
+            new SaveExerciseRequest
+            {
+                Code = $"VERSION-CABLE-{Guid.NewGuid():N}",
+                Name = "Versioning Cable Fly",
+                Description = "Chest isolation exercise.",
+                MuscleGroup = "Chest",
+                Equipment = "Cable Machine",
+                DifficultyLevel = "Beginner",
+                TrainingLocation = "Gym",
+                Instructions = "Maintain controlled movement."
+            });
+
+        Assert.Equal(HttpStatusCode.Created, cableResponse.StatusCode);
+
+        var cableExercise = await cableResponse.Content
+            .ReadFromJsonAsync<ExerciseResponse>();
+
+        Assert.NotNull(cableExercise);
+
+        // 5. Assign Bench Press as exercise 1
+        var benchAssignmentResponse = await client.PostAsJsonAsync(
+            $"/api/admin/workout-plans/{version1.Id}/days/{originalDay.Id}/exercises",
+            new AddWorkoutPlanExerciseRequest
+            {
+                ExerciseId = benchExercise.Id,
+                ExerciseOrder = 1,
+                Sets = 3,
+                Reps = 12,
+                RestSeconds = 90,
+                DurationSeconds = null,
+                Notes = "Bench Press assignment."
+            });
+
+        Assert.Equal(
+            HttpStatusCode.Created,
+            benchAssignmentResponse.StatusCode);
+
+        // 6. Assign Cable Fly as exercise 2
+        var cableAssignmentResponse = await client.PostAsJsonAsync(
+            $"/api/admin/workout-plans/{version1.Id}/days/{originalDay.Id}/exercises",
+            new AddWorkoutPlanExerciseRequest
+            {
+                ExerciseId = cableExercise.Id,
+                ExerciseOrder = 2,
+                Sets = 3,
+                Reps = 15,
+                RestSeconds = 60,
+                DurationSeconds = null,
+                Notes = "Cable Fly assignment."
+            });
+
+        Assert.Equal(
+            HttpStatusCode.Created,
+            cableAssignmentResponse.StatusCode);
+
+        // 7. Retrieve original assignments
+        var version1Details = await client
+            .GetFromJsonAsync<WorkoutPlanDetailResponse>(
+                $"/api/admin/workout-plans/{version1.Id}");
+
+        Assert.NotNull(version1Details);
+
+        var originalAssignments = Assert.Single(version1Details.Days)
+            .Exercises;
+
+        Assert.Equal(2, originalAssignments.Count);
+
+        var originalBench = Assert.Single(
+            originalAssignments.Where(x => x.ExerciseId == benchExercise.Id));
+
+        var originalCable = Assert.Single(
+            originalAssignments.Where(x => x.ExerciseId == cableExercise.Id));
+
+        Assert.Equal(1, originalBench.ExerciseOrder);
+        Assert.Equal(2, originalCable.ExerciseOrder);
+
+        // 8. Create V2 from V1
+        var version2Response = await client.PostAsync(
+            $"/api/admin/workout-plans/{version1.Id}/versions",
+            null);
+
+        Assert.Equal(HttpStatusCode.Created, version2Response.StatusCode);
+
+        using var version2Document =
+            await System.Text.Json.JsonDocument.ParseAsync(
+                await version2Response.Content.ReadAsStreamAsync());
+
+        var version2Id = version2Document.RootElement
+            .GetProperty("id")
+            .GetGuid();
+
+        // 9. Retrieve cloned assignments from V2
+        var version2Details = await client
+            .GetFromJsonAsync<WorkoutPlanDetailResponse>(
+                $"/api/admin/workout-plans/{version2Id}");
+
+        Assert.NotNull(version2Details);
+
+        var clonedDay = Assert.Single(version2Details.Days);
+
+        var clonedBench = Assert.Single(
+            clonedDay.Exercises.Where(
+                x => x.ExerciseId == benchExercise.Id));
+
+        var clonedCable = Assert.Single(
+            clonedDay.Exercises.Where(
+                x => x.ExerciseId == cableExercise.Id));
+
+        Assert.NotEqual(originalBench.Id, clonedBench.Id);
+        Assert.NotEqual(originalCable.Id, clonedCable.Id);
+
+        // 10. Prepare reorder request for historical V1
+        var historicalReorderRequest =
+            new ReorderWorkoutPlanExercisesRequest
+            {
+                Exercises = new()
+                {
+                new()
+                {
+                    AssignmentId = originalBench.Id,
+                    ExerciseOrder = 2
+                },
+                new()
+                {
+                    AssignmentId = originalCable.Id,
+                    ExerciseOrder = 1
+                }
+                }
+            };
+
+        // 11. Attempt to reorder exercises in historical V1
+        var historicalResponse = await client.PutAsJsonAsync(
+            $"/api/admin/workout-plans/{version1.Id}/days/{originalDay.Id}/exercises/reorder",
+            historicalReorderRequest);
+
+        Assert.Equal(
+            HttpStatusCode.Conflict,
+            historicalResponse.StatusCode);
+
+        // 12. Prepare reorder request for latest V2
+        var latestReorderRequest =
+            new ReorderWorkoutPlanExercisesRequest
+            {
+                Exercises = new()
+                {
+                new()
+                {
+                    AssignmentId = clonedBench.Id,
+                    ExerciseOrder = 2
+                },
+                new()
+                {
+                    AssignmentId = clonedCable.Id,
+                    ExerciseOrder = 1
+                }
+                }
+            };
+
+        // 13. Reorder exercises in latest V2
+        var latestResponse = await client.PutAsJsonAsync(
+            $"/api/admin/workout-plans/{version2Id}/days/{clonedDay.Id}/exercises/reorder",
+            latestReorderRequest);
+
+        Assert.Equal(
+            HttpStatusCode.OK,
+            latestResponse.StatusCode);
+
+        // 14. Verify historical V1 retains original order
+        var originalDetails = await client
+            .GetFromJsonAsync<WorkoutPlanDetailResponse>(
+                $"/api/admin/workout-plans/{version1.Id}");
+
+        Assert.NotNull(originalDetails);
+
+        var unchangedExercises = Assert.Single(originalDetails.Days)
+            .Exercises;
+
+        Assert.Equal(
+            1,
+            Assert.Single(unchangedExercises.Where(
+                x => x.ExerciseId == benchExercise.Id)).ExerciseOrder);
+
+        Assert.Equal(
+            2,
+            Assert.Single(unchangedExercises.Where(
+                x => x.ExerciseId == cableExercise.Id)).ExerciseOrder);
+
+        // 15. Verify latest V2 contains updated order
+        var updatedVersion2Details = await client
+            .GetFromJsonAsync<WorkoutPlanDetailResponse>(
+                $"/api/admin/workout-plans/{version2Id}");
+
+        Assert.NotNull(updatedVersion2Details);
+
+        var updatedExercises = Assert.Single(updatedVersion2Details.Days)
+            .Exercises;
+
+        Assert.Equal(
+            2,
+            Assert.Single(updatedExercises.Where(
+                x => x.ExerciseId == benchExercise.Id)).ExerciseOrder);
+
+        Assert.Equal(
+            1,
+            Assert.Single(updatedExercises.Where(
+                x => x.ExerciseId == cableExercise.Id)).ExerciseOrder);
+    }
+    // ============================================================
+    // Step 10.29.42.20.21
+    // Historical workout plans cannot be submitted for review.
+    // Latest workout plans can be submitted for review.
+    // ============================================================
+
+    [Fact]
+    public async Task Admin_CannotSubmitHistoricalWorkoutPlanForReview()
+    {
+        // Arrange
+        using var factory = new FitnessPlatformWebApplicationFactory();
+
+        await TestIdentitySeeder.SeedAsync(factory.Services);
+
+        using var client = factory.CreateClient();
+
+        await AuthenticateDuplicationAdminAsync(client);
+
+        // 1. Create workout plan V1
+        var version1 = await CreateDuplicationTestPlanAsync(client);
+
+        Assert.Equal("Draft", version1.ReviewStatus);
+
+        // 2. Add training day
+        var dayResponse = await client.PostAsJsonAsync(
+            $"/api/admin/workout-plans/{version1.Id}/days",
+            new CreateWorkoutPlanDayRequest
+            {
+                DayNumber = 1,
+                Name = "Full Body Workout",
+                Description = "Full body strength training.",
+                IsRestDay = false,
+                EstimatedDurationMinutes = 60
+            });
+
+        Assert.Equal(
+            HttpStatusCode.Created,
+            dayResponse.StatusCode);
+
+        var originalDay = await dayResponse.Content
+            .ReadFromJsonAsync<WorkoutPlanDayResponse>();
+
+        Assert.NotNull(originalDay);
+
+        // 3. Create exercise in Exercise Master
+        var exerciseResponse = await client.PostAsJsonAsync(
+            "/api/exercises",
+            new SaveExerciseRequest
+            {
+                Code = $"VERSION-REVIEW-{Guid.NewGuid():N}",
+                Name = "Versioning Review Squat",
+                Description = "Full body exercise.",
+                MuscleGroup = "Legs",
+                Equipment = "Bodyweight",
+                DifficultyLevel = "Beginner",
+                TrainingLocation = "Gym",
+                Instructions = "Perform controlled squats."
+            });
+
+        Assert.Equal(
+            HttpStatusCode.Created,
+            exerciseResponse.StatusCode);
+
+        var exercise = await exerciseResponse.Content
+            .ReadFromJsonAsync<ExerciseResponse>();
+
+        Assert.NotNull(exercise);
+
+        // 4. Assign exercise to V1
+        var assignmentResponse = await client.PostAsJsonAsync(
+            $"/api/admin/workout-plans/{version1.Id}/days/{originalDay.Id}/exercises",
+            new AddWorkoutPlanExerciseRequest
+            {
+                ExerciseId = exercise.Id,
+                ExerciseOrder = 1,
+                Sets = 3,
+                Reps = 12,
+                RestSeconds = 90,
+                DurationSeconds = null,
+                Notes = "Full body strength exercise."
+            });
+
+        Assert.Equal(
+            HttpStatusCode.Created,
+            assignmentResponse.StatusCode);
+
+        // 5. Create V2 from V1
+        var version2Response = await client.PostAsync(
+            $"/api/admin/workout-plans/{version1.Id}/versions",
+            null);
+
+        Assert.Equal(
+            HttpStatusCode.Created,
+            version2Response.StatusCode);
+
+        using var version2Document =
+            await System.Text.Json.JsonDocument.ParseAsync(
+                await version2Response.Content.ReadAsStreamAsync());
+
+        var version2Id = version2Document.RootElement
+            .GetProperty("id")
+            .GetGuid();
+
+        // 6. Attempt to submit historical V1
+        var historicalResponse = await client.PostAsync(
+            $"/api/admin/workout-plans/{version1.Id}/submit-for-review",
+            null);
+
+        Assert.Equal(
+            HttpStatusCode.Conflict,
+            historicalResponse.StatusCode);
+
+        // 7. Verify historical V1 remains Draft
+        var historicalDetails = await client
+            .GetFromJsonAsync<WorkoutPlanDetailResponse>(
+                $"/api/admin/workout-plans/{version1.Id}");
+
+        Assert.NotNull(historicalDetails);
+
+        Assert.Equal(
+            "Draft",
+            historicalDetails.ReviewStatus);
+
+        // 8. Submit latest V2 for review
+        var latestResponse = await client.PostAsync(
+            $"/api/admin/workout-plans/{version2Id}/submit-for-review",
+            null);
+
+        Assert.Equal(
+            HttpStatusCode.OK,
+            latestResponse.StatusCode);
+
+        // 9. Verify latest V2 is In Review
+        var latestDetails = await client
+            .GetFromJsonAsync<WorkoutPlanDetailResponse>(
+                $"/api/admin/workout-plans/{version2Id}");
+
+        Assert.NotNull(latestDetails);
+
+        Assert.Equal(
+            "In Review",
+            latestDetails.ReviewStatus);
+
+        // 10. Verify V1 remains unchanged
+        var finalHistoricalDetails = await client
+            .GetFromJsonAsync<WorkoutPlanDetailResponse>(
+                $"/api/admin/workout-plans/{version1.Id}");
+
+        Assert.NotNull(finalHistoricalDetails);
+
+        Assert.Equal(
+            "Draft",
+            finalHistoricalDetails.ReviewStatus);
+    }
+    // ============================================================
+    // Step 10.29.42.20.22
+    // Historical workout plan versions cannot be approved.
+    // Latest eligible versions can be approved.
+    // ============================================================
+
+    [Fact]
+    public async Task Admin_CannotApproveHistoricalWorkoutPlanVersion()
+    {
+        // Arrange
+        using var factory = new FitnessPlatformWebApplicationFactory();
+
+        await TestIdentitySeeder.SeedAsync(factory.Services);
+
+        using var client = factory.CreateClient();
+
+        await AuthenticateDuplicationAdminAsync(client);
+
+        // 1. Create workout plan V1
+        var version1 = await CreateDuplicationTestPlanAsync(client);
+
+        Assert.Equal("Draft", version1.ReviewStatus);
+
+        // 2. Add a training day to V1
+        var dayResponse = await client.PostAsJsonAsync(
+            $"/api/admin/workout-plans/{version1.Id}/days",
+            new CreateWorkoutPlanDayRequest
+            {
+                DayNumber = 1,
+                Name = "Full Body Workout",
+                Description = "Full body strength training.",
+                IsRestDay = false,
+                EstimatedDurationMinutes = 60
+            });
+
+        Assert.Equal(HttpStatusCode.Created, dayResponse.StatusCode);
+
+        var originalDay = await dayResponse.Content
+            .ReadFromJsonAsync<WorkoutPlanDayResponse>();
+
+        Assert.NotNull(originalDay);
+
+        // 3. Create an exercise in Exercise Master
+        var exerciseResponse = await client.PostAsJsonAsync(
+            "/api/exercises",
+            new SaveExerciseRequest
+            {
+                Code = $"VERSION-APPROVE-{Guid.NewGuid():N}",
+                Name = "Versioning Approval Squat",
+                Description = "Full body strength exercise.",
+                MuscleGroup = "Legs",
+                Equipment = "Bodyweight",
+                DifficultyLevel = "Beginner",
+                TrainingLocation = "Gym",
+                Instructions = "Perform controlled squats."
+            });
+
+        Assert.Equal(HttpStatusCode.Created, exerciseResponse.StatusCode);
+
+        var exercise = await exerciseResponse.Content
+            .ReadFromJsonAsync<ExerciseResponse>();
+
+        Assert.NotNull(exercise);
+
+        // 4. Assign exercise to V1
+        var assignmentResponse = await client.PostAsJsonAsync(
+            $"/api/admin/workout-plans/{version1.Id}/days/{originalDay.Id}/exercises",
+            new AddWorkoutPlanExerciseRequest
+            {
+                ExerciseId = exercise.Id,
+                ExerciseOrder = 1,
+                Sets = 3,
+                Reps = 12,
+                RestSeconds = 90,
+                DurationSeconds = null,
+                Notes = "Approval workflow test exercise."
+            });
+
+        Assert.Equal(HttpStatusCode.Created, assignmentResponse.StatusCode);
+
+        // 5. Submit V1 for review while it is still the latest version
+        var submitVersion1Response = await client.PostAsync(
+            $"/api/admin/workout-plans/{version1.Id}/submit-for-review",
+            null);
+
+        Assert.Equal(
+            HttpStatusCode.OK,
+            submitVersion1Response.StatusCode);
+
+        // 6. Verify V1 is In Review
+        var version1BeforeVersioning = await client
+            .GetFromJsonAsync<WorkoutPlanDetailResponse>(
+                $"/api/admin/workout-plans/{version1.Id}");
+
+        Assert.NotNull(version1BeforeVersioning);
+        Assert.Equal("In Review", version1BeforeVersioning.ReviewStatus);
+
+        // 7. Create V2 from V1
+        var version2Response = await client.PostAsync(
+            $"/api/admin/workout-plans/{version1.Id}/versions",
+            null);
+
+        Assert.Equal(HttpStatusCode.Created, version2Response.StatusCode);
+
+        using var version2Document =
+            await System.Text.Json.JsonDocument.ParseAsync(
+                await version2Response.Content.ReadAsStreamAsync());
+
+        var version2Id = version2Document.RootElement
+            .GetProperty("id")
+            .GetGuid();
+
+        // 8. Attempt to approve historical V1
+        var historicalApproveResponse = await client.PostAsync(
+            $"/api/admin/workout-plans/{version1.Id}/approve",
+            null);
+
+        Assert.Equal(
+            HttpStatusCode.Conflict,
+            historicalApproveResponse.StatusCode);
+
+        // Verify the conflict is specifically due to version protection
+        var historicalError = await historicalApproveResponse.Content
+            .ReadFromJsonAsync<System.Text.Json.JsonElement>();
+
+        Assert.Equal(
+            "Historical workout plan versions cannot be modified.",
+            historicalError.GetProperty("error").GetString());
+
+        // 9. Verify V1 remains In Review
+        var historicalDetails = await client
+            .GetFromJsonAsync<WorkoutPlanDetailResponse>(
+                $"/api/admin/workout-plans/{version1.Id}");
+
+        Assert.NotNull(historicalDetails);
+        Assert.Equal("In Review", historicalDetails.ReviewStatus);
+
+        // 10. Check V2 review status
+        var version2Details = await client
+            .GetFromJsonAsync<WorkoutPlanDetailResponse>(
+                $"/api/admin/workout-plans/{version2Id}");
+
+        Assert.NotNull(version2Details);
+
+        // A new version may inherit or reset review status depending
+        // on the version creation policy. Handle the eligible states.
+        if (version2Details.ReviewStatus == "Draft" ||
+            version2Details.ReviewStatus == "Rejected")
+        {
+            var submitVersion2Response = await client.PostAsync(
+                $"/api/admin/workout-plans/{version2Id}/submit-for-review",
+                null);
+
+            Assert.Equal(
+                HttpStatusCode.OK,
+                submitVersion2Response.StatusCode);
+        }
+        else
+        {
+            Assert.Equal("In Review", version2Details.ReviewStatus);
+        }
+
+        // 11. Approve latest V2
+        var latestApproveResponse = await client.PostAsync(
+            $"/api/admin/workout-plans/{version2Id}/approve",
+            null);
+
+        Assert.Equal(
+            HttpStatusCode.OK,
+            latestApproveResponse.StatusCode);
+
+        // 12. Verify V2 is Approved
+        var approvedVersion2 = await client
+            .GetFromJsonAsync<WorkoutPlanDetailResponse>(
+                $"/api/admin/workout-plans/{version2Id}");
+
+        Assert.NotNull(approvedVersion2);
+        Assert.Equal("Approved", approvedVersion2.ReviewStatus);
+
+        // 13. Verify historical V1 remains unchanged
+        var finalHistoricalDetails = await client
+            .GetFromJsonAsync<WorkoutPlanDetailResponse>(
+                $"/api/admin/workout-plans/{version1.Id}");
+
+        Assert.NotNull(finalHistoricalDetails);
+        Assert.Equal("In Review", finalHistoricalDetails.ReviewStatus);
+    }
+    // ============================================================
+    // Step 10.29.42.20.23
+    // Historical workout plan versions cannot be rejected.
+    // Latest eligible versions can be rejected.
+    // ============================================================
+
+    [Fact]
+    public async Task Admin_CannotRejectHistoricalWorkoutPlanVersion()
+    {
+        // Arrange
+        using var factory = new FitnessPlatformWebApplicationFactory();
+
+        await TestIdentitySeeder.SeedAsync(factory.Services);
+
+        using var client = factory.CreateClient();
+
+        await AuthenticateDuplicationAdminAsync(client);
+
+        // 1. Create workout plan V1
+        var version1 = await CreateDuplicationTestPlanAsync(client);
+
+        Assert.Equal("Draft", version1.ReviewStatus);
+
+        // 2. Add a training day
+        var dayResponse = await client.PostAsJsonAsync(
+            $"/api/admin/workout-plans/{version1.Id}/days",
+            new CreateWorkoutPlanDayRequest
+            {
+                DayNumber = 1,
+                Name = "Full Body Workout",
+                Description = "Full body strength training.",
+                IsRestDay = false,
+                EstimatedDurationMinutes = 60
+            });
+
+        Assert.Equal(HttpStatusCode.Created, dayResponse.StatusCode);
+
+        var day = await dayResponse.Content
+            .ReadFromJsonAsync<WorkoutPlanDayResponse>();
+
+        Assert.NotNull(day);
+
+        // 3. Create exercise in Exercise Master
+        var exerciseResponse = await client.PostAsJsonAsync(
+            "/api/exercises",
+            new SaveExerciseRequest
+            {
+                Code = $"VERSION-REJECT-{Guid.NewGuid():N}",
+                Name = "Versioning Rejection Squat",
+                Description = "Exercise for rejection workflow testing.",
+                MuscleGroup = "Legs",
+                Equipment = "Bodyweight",
+                DifficultyLevel = "Beginner",
+                TrainingLocation = "Gym",
+                Instructions = "Perform controlled squats."
+            });
+
+        Assert.Equal(HttpStatusCode.Created, exerciseResponse.StatusCode);
+
+        var exercise = await exerciseResponse.Content
+            .ReadFromJsonAsync<ExerciseResponse>();
+
+        Assert.NotNull(exercise);
+
+        // 4. Assign exercise to V1
+        var assignmentResponse = await client.PostAsJsonAsync(
+            $"/api/admin/workout-plans/{version1.Id}/days/{day.Id}/exercises",
+            new AddWorkoutPlanExerciseRequest
+            {
+                ExerciseId = exercise.Id,
+                ExerciseOrder = 1,
+                Sets = 3,
+                Reps = 12,
+                RestSeconds = 90,
+                DurationSeconds = null,
+                Notes = "Rejection workflow test exercise."
+            });
+
+        Assert.Equal(HttpStatusCode.Created, assignmentResponse.StatusCode);
+
+        // 5. Submit V1 for review
+        var submitV1Response = await client.PostAsync(
+            $"/api/admin/workout-plans/{version1.Id}/submit-for-review",
+            null);
+
+        Assert.Equal(HttpStatusCode.OK, submitV1Response.StatusCode);
+
+        // 6. Verify V1 is In Review
+        var version1BeforeVersioning = await client
+            .GetFromJsonAsync<WorkoutPlanDetailResponse>(
+                $"/api/admin/workout-plans/{version1.Id}");
+
+        Assert.NotNull(version1BeforeVersioning);
+        Assert.Equal("In Review", version1BeforeVersioning.ReviewStatus);
+
+        // 7. Create V2
+        var version2Response = await client.PostAsync(
+            $"/api/admin/workout-plans/{version1.Id}/versions",
+            null);
+
+        Assert.Equal(HttpStatusCode.Created, version2Response.StatusCode);
+
+        using var version2Document =
+            await System.Text.Json.JsonDocument.ParseAsync(
+                await version2Response.Content.ReadAsStreamAsync());
+
+        var version2Id = version2Document.RootElement
+            .GetProperty("id")
+            .GetGuid();
+
+        // 8. Attempt to reject historical V1
+        var historicalRejectResponse = await client.PostAsJsonAsync(
+            $"/api/admin/workout-plans/{version1.Id}/reject",
+            new RejectWorkoutPlanRequest
+            {
+                Reason = "Historical version should not be rejected."
+            });
+
+        Assert.Equal(
+            HttpStatusCode.Conflict,
+            historicalRejectResponse.StatusCode);
+
+        // Verify the conflict comes from historical-version protection
+        var historicalError = await historicalRejectResponse.Content
+            .ReadFromJsonAsync<System.Text.Json.JsonElement>();
+
+        Assert.Equal(
+            "Historical workout plan versions cannot be modified.",
+            historicalError.GetProperty("error").GetString());
+
+        // 9. Verify V1 remains In Review
+        var historicalDetails = await client
+            .GetFromJsonAsync<WorkoutPlanDetailResponse>(
+                $"/api/admin/workout-plans/{version1.Id}");
+
+        Assert.NotNull(historicalDetails);
+
+        Assert.Equal("In Review", historicalDetails.ReviewStatus);
+        Assert.Null(historicalDetails.RejectionReason);
+
+        // 10. Ensure latest V2 is eligible for rejection
+        var version2Details = await client
+            .GetFromJsonAsync<WorkoutPlanDetailResponse>(
+                $"/api/admin/workout-plans/{version2Id}");
+
+        Assert.NotNull(version2Details);
+
+        if (version2Details.ReviewStatus == "Draft" ||
+            version2Details.ReviewStatus == "Rejected")
+        {
+            var submitV2Response = await client.PostAsync(
+                $"/api/admin/workout-plans/{version2Id}/submit-for-review",
+                null);
+
+            Assert.Equal(HttpStatusCode.OK, submitV2Response.StatusCode);
+        }
+        else
+        {
+            Assert.Equal("In Review", version2Details.ReviewStatus);
+        }
+
+        // 11. Reject latest V2
+        const string rejectionReason =
+            "Workout plan requires improvements before approval.";
+
+        var latestRejectResponse = await client.PostAsJsonAsync(
+            $"/api/admin/workout-plans/{version2Id}/reject",
+            new RejectWorkoutPlanRequest
+            {
+                Reason = rejectionReason
+            });
+
+        Assert.Equal(HttpStatusCode.OK, latestRejectResponse.StatusCode);
+
+        // 12. Verify V2 is Rejected
+        var rejectedVersion2 = await client
+            .GetFromJsonAsync<WorkoutPlanDetailResponse>(
+                $"/api/admin/workout-plans/{version2Id}");
+
+        Assert.NotNull(rejectedVersion2);
+
+        Assert.Equal("Rejected", rejectedVersion2.ReviewStatus);
+        Assert.Equal(rejectionReason, rejectedVersion2.RejectionReason);
+
+        // 13. Verify historical V1 remains unchanged
+        var finalHistoricalDetails = await client
+            .GetFromJsonAsync<WorkoutPlanDetailResponse>(
+                $"/api/admin/workout-plans/{version1.Id}");
+
+        Assert.NotNull(finalHistoricalDetails);
+
+        Assert.Equal("In Review", finalHistoricalDetails.ReviewStatus);
+        Assert.Null(finalHistoricalDetails.RejectionReason);
+    }
+
+    // ============================================================
+    // Step 10.29.42.20.25
+    // Historical workout plan versions cannot be deactivated.
+    // Latest workout plan versions can be deactivated.
+    // ============================================================
+
+    [Fact]
+    public async Task Admin_CannotDeactivateHistoricalWorkoutPlanVersion()
+    {
+        // Arrange
+        using var factory = new FitnessPlatformWebApplicationFactory();
+
+        await TestIdentitySeeder.SeedAsync(factory.Services);
+
+        using var client = factory.CreateClient();
+
+        await AuthenticateDuplicationAdminAsync(client);
+
+        // 1. Create workout plan V1
+        var version1 = await CreateDuplicationTestPlanAsync(client);
+
+        Assert.True(version1.IsActive);
+
+        // 2. Create V2 from V1
+        var version2Response = await client.PostAsync(
+            $"/api/admin/workout-plans/{version1.Id}/versions",
+            null);
+
+        Assert.Equal(
+            HttpStatusCode.Created,
+            version2Response.StatusCode);
+
+        using var version2Document =
+            await System.Text.Json.JsonDocument.ParseAsync(
+                await version2Response.Content.ReadAsStreamAsync());
+
+        var version2Id = version2Document.RootElement
+            .GetProperty("id")
+            .GetGuid();
+
+        // 3. Verify V1 and V2 are initially active
+        var originalDetails = await client
+            .GetFromJsonAsync<WorkoutPlanDetailResponse>(
+                $"/api/admin/workout-plans/{version1.Id}");
+
+        var latestDetails = await client
+            .GetFromJsonAsync<WorkoutPlanDetailResponse>(
+                $"/api/admin/workout-plans/{version2Id}");
+
+        Assert.NotNull(originalDetails);
+        Assert.NotNull(latestDetails);
+
+        Assert.True(originalDetails.IsActive);
+        Assert.True(latestDetails.IsActive);
+
+        // 4. Attempt to deactivate historical V1
+        var historicalResponse = await client.PatchAsync(
+            $"/api/admin/workout-plans/{version1.Id}/deactivate",
+            null);
+
+        Assert.Equal(
+            HttpStatusCode.Conflict,
+            historicalResponse.StatusCode);
+
+        // 5. Verify the conflict is caused by version protection
+        var historicalError = await historicalResponse.Content
+            .ReadFromJsonAsync<System.Text.Json.JsonElement>();
+
+        Assert.Equal(
+            "Historical workout plan versions cannot be modified.",
+            historicalError.GetProperty("error").GetString());
+
+        // 6. Deactivate latest V2
+        var latestResponse = await client.PatchAsync(
+            $"/api/admin/workout-plans/{version2Id}/deactivate",
+            null);
+
+        Assert.Equal(
+            HttpStatusCode.OK,
+            latestResponse.StatusCode);
+
+        // 7. Verify historical V1 remains active
+        var finalOriginalDetails = await client
+            .GetFromJsonAsync<WorkoutPlanDetailResponse>(
+                $"/api/admin/workout-plans/{version1.Id}");
+
+        Assert.NotNull(finalOriginalDetails);
+        Assert.True(finalOriginalDetails.IsActive);
+
+        // 8. Verify latest V2 is inactive
+        var finalLatestDetails = await client
+            .GetFromJsonAsync<WorkoutPlanDetailResponse>(
+                $"/api/admin/workout-plans/{version2Id}");
+
+        Assert.NotNull(finalLatestDetails);
+        Assert.False(finalLatestDetails.IsActive);
+    }
+    // ============================================================
+    // Step 10.29.42.20.26
+    // Historical workout plan versions cannot be activated.
+    // Latest workout plan versions can be activated.
+    // ============================================================
+
+    [Fact]
+    public async Task Admin_CannotActivateHistoricalWorkoutPlanVersion()
+    {
+        // Arrange
+        using var factory = new FitnessPlatformWebApplicationFactory();
+
+        await TestIdentitySeeder.SeedAsync(factory.Services);
+
+        using var client = factory.CreateClient();
+
+        await AuthenticateDuplicationAdminAsync(client);
+
+        // 1. Create workout plan V1
+        var version1 = await CreateDuplicationTestPlanAsync(client);
+
+        Assert.True(version1.IsActive);
+
+        // 2. Deactivate V1 while it is still the latest version
+        var deactivateV1Response = await client.PatchAsync(
+            $"/api/admin/workout-plans/{version1.Id}/deactivate",
+            null);
+
+        Assert.Equal(
+            HttpStatusCode.OK,
+            deactivateV1Response.StatusCode);
+
+        // 3. Verify V1 is inactive
+        var inactiveV1 = await client
+            .GetFromJsonAsync<WorkoutPlanDetailResponse>(
+                $"/api/admin/workout-plans/{version1.Id}");
+
+        Assert.NotNull(inactiveV1);
+        Assert.False(inactiveV1.IsActive);
+
+        // 4. Create V2 from V1
+        var version2Response = await client.PostAsync(
+            $"/api/admin/workout-plans/{version1.Id}/versions",
+            null);
+
+        Assert.Equal(
+            HttpStatusCode.Created,
+            version2Response.StatusCode);
+
+        using var version2Document =
+            await System.Text.Json.JsonDocument.ParseAsync(
+                await version2Response.Content.ReadAsStreamAsync());
+
+        var version2Id = version2Document.RootElement
+            .GetProperty("id")
+            .GetGuid();
+
+        // 5. Verify V2 exists
+        var version2Details = await client
+            .GetFromJsonAsync<WorkoutPlanDetailResponse>(
+                $"/api/admin/workout-plans/{version2Id}");
+
+        Assert.NotNull(version2Details);
+
+        // 6. Attempt to activate historical V1
+        var historicalActivateResponse = await client.PatchAsync(
+            $"/api/admin/workout-plans/{version1.Id}/activate",
+            null);
+
+        Assert.Equal(
+            HttpStatusCode.Conflict,
+            historicalActivateResponse.StatusCode);
+
+        // 7. Verify conflict is caused by historical-version protection
+        var historicalError = await historicalActivateResponse.Content
+            .ReadFromJsonAsync<System.Text.Json.JsonElement>();
+
+        Assert.Equal(
+            "Historical workout plan versions cannot be modified.",
+            historicalError.GetProperty("error").GetString());
+
+        // 8. Activate V2 if it inherited the inactive status
+        if (!version2Details.IsActive)
+        {
+            var activateV2Response = await client.PatchAsync(
+                $"/api/admin/workout-plans/{version2Id}/activate",
+                null);
+
+            Assert.Equal(
+                HttpStatusCode.OK,
+                activateV2Response.StatusCode);
+        }
+
+        // 9. Verify historical V1 remains inactive
+        var finalV1Details = await client
+            .GetFromJsonAsync<WorkoutPlanDetailResponse>(
+                $"/api/admin/workout-plans/{version1.Id}");
+
+        Assert.NotNull(finalV1Details);
+        Assert.False(finalV1Details.IsActive);
+
+        // 10. Verify latest V2 is active
+        var finalV2Details = await client
+            .GetFromJsonAsync<WorkoutPlanDetailResponse>(
+                $"/api/admin/workout-plans/{version2Id}");
+
+        Assert.NotNull(finalV2Details);
+        Assert.True(finalV2Details.IsActive);
+    }
+
+    // ============================================================
     // SHARED HELPERS FOR WORKOUT PLAN DUPLICATION TESTS
     // ============================================================
 

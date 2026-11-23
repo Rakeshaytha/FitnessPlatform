@@ -24,6 +24,16 @@ public class WorkoutPlan
 
     public string? RejectionReason { get; set; }
 
+    // Workout Plan Versioning
+
+    public int VersionNumber { get; set; } = 1;
+
+    public Guid VersionGroupId { get; set; }
+
+    public Guid? PreviousVersionId { get; set; }
+
+    public bool IsLatestVersion { get; set; } = true;
+
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
 
     public DateTime UpdatedAtUtc { get; set; } = DateTime.UtcNow;

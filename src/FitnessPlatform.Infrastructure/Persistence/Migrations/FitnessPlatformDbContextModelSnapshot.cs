@@ -312,10 +312,18 @@ namespace FitnessPlatform.Infrastructure.Persistence.Migrations
                         .HasColumnType("bit")
                         .HasDefaultValue(true);
 
+                    b.Property<bool>("IsLatestVersion")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(true);
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
+
+                    b.Property<Guid?>("PreviousVersionId")
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<string>("RejectionReason")
                         .HasMaxLength(1000)
@@ -336,7 +344,20 @@ namespace FitnessPlatform.Infrastructure.Persistence.Migrations
                     b.Property<DateTime>("UpdatedAtUtc")
                         .HasColumnType("datetime2");
 
+                    b.Property<Guid>("VersionGroupId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("VersionNumber")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasDefaultValue(1);
+
                     b.HasKey("Id");
+
+                    b.HasIndex("PreviousVersionId");
+
+                    b.HasIndex("VersionGroupId", "VersionNumber")
+                        .IsUnique();
 
                     b.HasIndex("GoalCode", "ExperienceLevel", "TrainingLocation");
 

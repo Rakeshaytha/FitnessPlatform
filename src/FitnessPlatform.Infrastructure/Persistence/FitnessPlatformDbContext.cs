@@ -185,6 +185,9 @@ public class FitnessPlatformDbContext : IdentityDbContext<ApplicationUser, Ident
             entity.Property(x => x.IsActive)
                 .HasDefaultValue(true);
 
+
+
+
             entity.Property(x => x.CreatedAtUtc)
                 .IsRequired();
 
@@ -267,6 +270,31 @@ public class FitnessPlatformDbContext : IdentityDbContext<ApplicationUser, Ident
 
             entity.Property(x => x.IsActive)
                 .HasDefaultValue(true);
+
+            // Workout Plan Versioning
+
+            entity.Property(x => x.VersionNumber)
+                .IsRequired()
+                .HasDefaultValue(1);
+
+            entity.Property(x => x.VersionGroupId)
+                .IsRequired();
+
+            entity.Property(x => x.PreviousVersionId)
+                .IsRequired(false);
+
+            entity.Property(x => x.IsLatestVersion)
+                .IsRequired()
+                .HasDefaultValue(true);
+
+            entity.HasIndex(x => new
+            {
+                x.VersionGroupId,
+                x.VersionNumber
+            })
+            .IsUnique();
+
+            entity.HasIndex(x => x.PreviousVersionId);
 
             entity.Property(x => x.CreatedAtUtc)
                 .IsRequired();
