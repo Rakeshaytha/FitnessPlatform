@@ -872,6 +872,185 @@ public static class WorkoutPlanEndpoints
         })
         .WithName("DeleteWorkoutPlanExercise");
 
+        // REORDER EXERCISES WITHIN A WORKOUT DAY
+        group.MapPut("/{planId:guid}/days/{dayId:guid}/exercises/reorder", async (
+            Guid planId,
+            Guid dayId,
+            ReorderWorkoutPlanExercisesRequest request,
+            FitnessPlatformDbContext db,
+            CancellationToken cancellationToken) =>
+        {
+            // Step 1: Verify workout plan exists
+            var plan = await db.WorkoutPlans
+                .FindAsync(new object[] { planId }, cancellationToken);
+
+            if (plan is null)
+            {
+                return Results.NotFound(new
+                {
+                    Error = "Workout plan not found."
+                });
+            }
+
+            // Step 2: Verify workout plan is editable
+            if (!WorkoutPlanReviewWorkflowValidator.CanEdit(
+                    plan.ReviewStatus,
+                    plan.IsActive))
+            {
+                return Results.Conflict(new
+                {
+                    Error = "Only active Draft or Rejected workout plans can be edited."
+                });
+            }
+
+            // Step 3: Verify workout day belongs to the plan
+            var day = await db.WorkoutPlanDays
+                .FindAsync(new object[] { dayId }, cancellationToken);
+
+            if (day is null || day.WorkoutPlanId != planId)
+            {
+                return Results.NotFound(new
+                {
+                    Error = "Workout day not found in this plan."
+                });
+            }
+
+            // Step 4: Prevent exercise reordering on rest days
+            if (day.IsRestDay)
+            {
+                return Results.BadRequest(new
+                {
+                    Error = "Cannot reorder exercises on a rest day."
+                });
+            }
+
+            // Step 5: Validate request
+            if (request?.Exercises is null || request.Exercises.Count == 0)
+            {
+                return Results.BadRequest(new
+                {
+                    Error = "At least one exercise assignment is required."
+                });
+            }
+
+            var requestedItems = request.Exercises;
+
+            if (requestedItems.Any(x =>
+                    x is null ||
+                    x.AssignmentId == Guid.Empty ||
+                    x.ExerciseOrder < 1))
+            {
+                return Results.BadRequest(new
+                {
+                    Error = "Invalid exercise reorder values."
+                });
+            }
+
+            // Step 6: Prevent duplicate assignment IDs
+            if (requestedItems
+                .Select(x => x.AssignmentId)
+                .Distinct()
+                .Count() != requestedItems.Count)
+            {
+                return Results.BadRequest(new
+                {
+                    Error = "Duplicate exercise assignment IDs are not allowed."
+                });
+            }
+
+            // Step 7: Validate consecutive positions starting from 1
+            var requestedOrders = requestedItems
+                .Select(x => x.ExerciseOrder)
+                .OrderBy(x => x)
+                .ToArray();
+
+            var expectedOrders = Enumerable
+                .Range(1, requestedItems.Count)
+                .ToArray();
+
+            if (!requestedOrders.SequenceEqual(expectedOrders))
+            {
+                return Results.BadRequest(new
+                {
+                    Error = "Exercise positions must be unique and consecutive starting from 1."
+                });
+            }
+
+            // Step 8: Retrieve all assignments belonging to this workout day
+            var assignments = await db.WorkoutPlanExercises
+                .Where(x => x.WorkoutPlanDayId == dayId)
+                .ToListAsync(cancellationToken);
+
+            // Step 9: Require the complete assignment list
+            var existingIds = assignments
+                .Select(x => x.Id)
+                .ToHashSet();
+
+            var requestedIds = requestedItems
+                .Select(x => x.AssignmentId)
+                .ToHashSet();
+
+            if (!existingIds.SetEquals(requestedIds))
+            {
+                return Results.BadRequest(new
+                {
+                    Error = "Reorder request must contain every exercise assignment belonging to this workout day."
+                });
+            }
+
+            // Step 10: Start transaction
+            await using var transaction =
+                await db.Database.BeginTransactionAsync(cancellationToken);
+
+            // Step 11: Move assignments to temporary unused positions
+            // Negative positions avoid collisions with existing positive positions.
+
+            for (var i = 0; i < assignments.Count; i++)
+            {
+                assignments[i].ExerciseOrder = -(i + 1);
+            }
+
+            await db.SaveChangesAsync(cancellationToken);
+
+            // Step 12: Apply requested exercise positions
+            var requestedOrderById = requestedItems.ToDictionary(
+                x => x.AssignmentId,
+                x => x.ExerciseOrder);
+
+            foreach (var assignment in assignments)
+            {
+                assignment.ExerciseOrder = requestedOrderById[assignment.Id];
+            }
+
+            // Step 13: Update parent plan timestamp
+            plan.UpdatedAtUtc = DateTime.UtcNow;
+
+            await db.SaveChangesAsync(cancellationToken);
+
+            // Step 14: Commit transaction
+            await transaction.CommitAsync(cancellationToken);
+
+            // Step 15: Return reordered assignments
+            var response = assignments
+                .OrderBy(x => x.ExerciseOrder)
+                .Select(x => new WorkoutPlanExerciseResponse
+                {
+                    Id = x.Id,
+                    WorkoutPlanDayId = x.WorkoutPlanDayId,
+                    ExerciseId = x.ExerciseId,
+                    ExerciseOrder = x.ExerciseOrder,
+                    Sets = x.Sets,
+                    Reps = x.Reps,
+                    RestSeconds = x.RestSeconds,
+                    DurationSeconds = x.DurationSeconds,
+                    Notes = x.Notes
+                })
+                .ToList();
+
+            return Results.Ok(response);
+        })
+        .WithName("ReorderWorkoutPlanExercises");
+
 
         // GET WORKOUT PLAN DETAILS WITH DAYS AND EXERCISES
         group.MapGet("/{planId:guid}", async (
