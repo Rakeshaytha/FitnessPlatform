@@ -15842,7 +15842,622 @@ public class WorkoutPlanIntegrationTests
 
         Assert.Equal(0, restDayAssignments);
     }
+
+    [Fact]
+    public async Task Admin_CanReactivateInactiveWorkoutPlan()
+    {
+        using var factory = new FitnessPlatformWebApplicationFactory();
+
+        await TestIdentitySeeder.SeedAsync(factory.Services);
+
+        using var client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions
+            {
+                AllowAutoRedirect = false
+            });
+
+        // Step 1: Authenticate as Administrator
+        var loginResponse = await client.PostAsJsonAsync(
+            "/api/auth/login",
+            new
+            {
+                Email = TestIdentitySeeder.AdminEmail,
+                Password = TestIdentitySeeder.TestPassword
+            });
+
+        Assert.Equal(HttpStatusCode.OK, loginResponse.StatusCode);
+
+        var login = await loginResponse.Content
+            .ReadFromJsonAsync<LoginTestResponse>();
+
+        Assert.NotNull(login);
+
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", login.AccessToken);
+
+        // Step 2: Create workout plan
+        var planResponse = await client.PostAsJsonAsync(
+            "/api/admin/workout-plans",
+            new CreateWorkoutPlanRequest
+            {
+                Name = $"Reactivation Test {Guid.NewGuid():N}",
+                GoalCode = "WEIGHT_LOSS",
+                ExperienceLevel = "Beginner",
+                TrainingLocation = "Gym",
+                DaysPerWeek = 3,
+                DurationWeeks = 12
+            });
+
+        Assert.Equal(HttpStatusCode.Created, planResponse.StatusCode);
+
+        var plan = await planResponse.Content
+            .ReadFromJsonAsync<WorkoutPlanResponse>();
+
+        Assert.NotNull(plan);
+        Assert.True(plan.IsActive);
+
+        var originalReviewStatus = plan.ReviewStatus;
+
+        // Step 3: Deactivate workout plan
+        var deactivateResponse = await client.PatchAsync(
+            $"/api/admin/workout-plans/{plan.Id}/deactivate",
+                   null);
+
+        Assert.Equal(HttpStatusCode.OK, deactivateResponse.StatusCode);
+
+        // Step 4: Verify plan is inactive
+        var inactiveResponse = await client.GetAsync(
+            $"/api/admin/workout-plans/{plan.Id}");
+
+        Assert.Equal(HttpStatusCode.OK, inactiveResponse.StatusCode);
+
+        var inactivePlan = await inactiveResponse.Content
+            .ReadFromJsonAsync<WorkoutPlanDetailResponse>();
+
+        Assert.NotNull(inactivePlan);
+        Assert.False(inactivePlan.IsActive);
+
+        // Step 5: Reactivate workout plan
+        var activateResponse = await client.PatchAsync(
+            $"/api/admin/workout-plans/{plan.Id}/activate",
+                   null);
+
+        Assert.Equal(HttpStatusCode.OK, activateResponse.StatusCode);
+
+        // Step 6: Verify activation response
+        var activationJson = await activateResponse.Content
+            .ReadAsStringAsync();
+
+        using var activationDocument =
+            System.Text.Json.JsonDocument.Parse(activationJson);
+
+        var activationResult = activationDocument.RootElement;
+
+        Assert.Equal(
+            plan.Id,
+            activationResult.GetProperty("id").GetGuid());
+
+        Assert.True(
+            activationResult.GetProperty("isActive").GetBoolean());
+
+        // Step 7: Retrieve workout plan after reactivation
+        var detailsResponse = await client.GetAsync(
+            $"/api/admin/workout-plans/{plan.Id}");
+
+        Assert.Equal(HttpStatusCode.OK, detailsResponse.StatusCode);
+
+        var savedPlan = await detailsResponse.Content
+            .ReadFromJsonAsync<WorkoutPlanDetailResponse>();
+
+        Assert.NotNull(savedPlan);
+
+        // Step 8: Verify reactivation persisted
+        Assert.Equal(plan.Id, savedPlan.Id);
+        Assert.True(savedPlan.IsActive);
+
+        // Step 9: Verify review status was preserved
+        Assert.Equal(originalReviewStatus, savedPlan.ReviewStatus);
+    }
+    [Fact]
+    public async Task Admin_CannotReactivateAlreadyActiveWorkoutPlan()
+    {
+        using var factory = new FitnessPlatformWebApplicationFactory();
+
+        await TestIdentitySeeder.SeedAsync(factory.Services);
+
+        using var client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions
+            {
+                AllowAutoRedirect = false
+            });
+
+        // Step 1: Authenticate as Administrator
+        var loginResponse = await client.PostAsJsonAsync(
+            "/api/auth/login",
+            new
+            {
+                Email = TestIdentitySeeder.AdminEmail,
+                Password = TestIdentitySeeder.TestPassword
+            });
+
+        Assert.Equal(HttpStatusCode.OK, loginResponse.StatusCode);
+
+        var login = await loginResponse.Content
+            .ReadFromJsonAsync<LoginTestResponse>();
+
+        Assert.NotNull(login);
+
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", login.AccessToken);
+
+        // Step 2: Create an active workout plan
+        var planResponse = await client.PostAsJsonAsync(
+            "/api/admin/workout-plans",
+            new CreateWorkoutPlanRequest
+            {
+                Name = $"Already Active Reactivation Test {Guid.NewGuid():N}",
+                GoalCode = "WEIGHT_LOSS",
+                ExperienceLevel = "Beginner",
+                TrainingLocation = "Gym",
+                DaysPerWeek = 3,
+                DurationWeeks = 12
+            });
+
+        Assert.Equal(HttpStatusCode.Created, planResponse.StatusCode);
+
+        var plan = await planResponse.Content
+            .ReadFromJsonAsync<WorkoutPlanResponse>();
+
+        Assert.NotNull(plan);
+        Assert.True(plan.IsActive);
+
+        var originalReviewStatus = plan.ReviewStatus;
+
+        // Step 3: Attempt to activate an already active plan
+        var activateResponse = await client.PatchAsync(
+            $"/api/admin/workout-plans/{plan.Id}/activate",
+                   null);
+
+        // Step 4: Verify API returns 409 Conflict
+        Assert.Equal(
+            HttpStatusCode.Conflict,
+            activateResponse.StatusCode);
+
+        // Step 5: Verify error message
+        var errorResponse = await activateResponse.Content
+            .ReadAsStringAsync();
+
+        Assert.Contains(
+            "Workout plan is already active",
+            errorResponse,
+            StringComparison.OrdinalIgnoreCase);
+
+        // Step 6: Retrieve workout plan
+        var detailsResponse = await client.GetAsync(
+            $"/api/admin/workout-plans/{plan.Id}");
+
+        Assert.Equal(HttpStatusCode.OK, detailsResponse.StatusCode);
+
+        var savedPlan = await detailsResponse.Content
+            .ReadFromJsonAsync<WorkoutPlanDetailResponse>();
+
+        Assert.NotNull(savedPlan);
+
+        // Step 7: Verify workout plan remains active
+        Assert.True(savedPlan.IsActive);
+
+        // Step 8: Verify review status remains unchanged
+        Assert.Equal(
+            originalReviewStatus,
+            savedPlan.ReviewStatus);
+    }
+
+    [Fact]
+    public async Task Admin_CannotReactivateNonexistentWorkoutPlan()
+    {
+        using var factory = new FitnessPlatformWebApplicationFactory();
+
+        await TestIdentitySeeder.SeedAsync(factory.Services);
+
+        using var client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions
+            {
+                AllowAutoRedirect = false
+            });
+
+        var loginResponse = await client.PostAsJsonAsync(
+            "/api/auth/login",
+            new
+            {
+                Email = TestIdentitySeeder.AdminEmail,
+                Password = TestIdentitySeeder.TestPassword
+            });
+
+        Assert.Equal(HttpStatusCode.OK, loginResponse.StatusCode);
+
+        var login = await loginResponse.Content
+            .ReadFromJsonAsync<LoginTestResponse>();
+
+        Assert.NotNull(login);
+
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", login.AccessToken);
+
+        var nonexistentPlanId = Guid.NewGuid();
+
+        var activateResponse = await client.PatchAsync(
+            $"/api/admin/workout-plans/{nonexistentPlanId}/activate",
+                   null);
+
+        Assert.Equal(HttpStatusCode.NotFound, activateResponse.StatusCode);
+
+        var errorResponse = await activateResponse.Content.ReadAsStringAsync();
+
+        Assert.Contains(
+            "Workout plan not found",
+            errorResponse,
+            StringComparison.OrdinalIgnoreCase);
+    }
+    [Fact]
+    public async Task UnauthenticatedUser_CannotReactivateWorkoutPlan()
+    {
+        using var factory = new FitnessPlatformWebApplicationFactory();
+
+        await TestIdentitySeeder.SeedAsync(factory.Services);
+
+        using var client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions
+            {
+                AllowAutoRedirect = false
+            });
+
+        var activateResponse = await client.PatchAsync(
+            $"/api/admin/workout-plans/{Guid.NewGuid()}/activate",
+                   null);
+
+        Assert.Equal(
+            HttpStatusCode.Unauthorized,
+            activateResponse.StatusCode);
+    }
+    [Fact]
+    public async Task Member_CannotReactivateWorkoutPlan()
+    {
+        using var factory = new FitnessPlatformWebApplicationFactory();
+
+        await TestIdentitySeeder.SeedAsync(factory.Services);
+
+        using var client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions
+            {
+                AllowAutoRedirect = false
+            });
+
+        var loginResponse = await client.PostAsJsonAsync(
+            "/api/auth/login",
+            new
+            {
+                Email = TestIdentitySeeder.Member1Email,
+                Password = TestIdentitySeeder.TestPassword
+            });
+
+        Assert.Equal(HttpStatusCode.OK, loginResponse.StatusCode);
+
+        var login = await loginResponse.Content
+            .ReadFromJsonAsync<LoginTestResponse>();
+
+        Assert.NotNull(login);
+
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", login.AccessToken);
+
+        var activateResponse = await client.PatchAsync(
+            $"/api/admin/workout-plans/{Guid.NewGuid()}/activate",
+                   null);
+
+        Assert.Equal(
+            HttpStatusCode.Forbidden,
+            activateResponse.StatusCode);
+    }
+
+    private static async Task VerifyReactivationPreservesReviewStatusAsync(
+    string expectedReviewStatus)
+    {
+        using var factory = new FitnessPlatformWebApplicationFactory();
+
+        await TestIdentitySeeder.SeedAsync(factory.Services);
+
+        using var client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions
+            {
+                AllowAutoRedirect = false
+            });
+
+        // Step 1: Authenticate as Administrator
+        var loginResponse = await client.PostAsJsonAsync(
+            "/api/auth/login",
+            new
+            {
+                Email = TestIdentitySeeder.AdminEmail,
+                Password = TestIdentitySeeder.TestPassword
+            });
+
+        Assert.Equal(HttpStatusCode.OK, loginResponse.StatusCode);
+
+        var login = await loginResponse.Content
+            .ReadFromJsonAsync<LoginTestResponse>();
+
+        Assert.NotNull(login);
+
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", login.AccessToken);
+
+        // Step 2: Create workout plan
+        var planResponse = await client.PostAsJsonAsync(
+            "/api/admin/workout-plans",
+            new CreateWorkoutPlanRequest
+            {
+                Name = $"Reactivation Review Status {Guid.NewGuid():N}",
+                GoalCode = "WEIGHT_LOSS",
+                ExperienceLevel = "Beginner",
+                TrainingLocation = "Gym",
+                DaysPerWeek = 3,
+                DurationWeeks = 12
+            });
+
+        Assert.Equal(HttpStatusCode.Created, planResponse.StatusCode);
+
+        var plan = await planResponse.Content
+            .ReadFromJsonAsync<WorkoutPlanResponse>();
+
+        Assert.NotNull(plan);
+        Assert.Equal("Draft", plan.ReviewStatus);
+
+        // Step 3: Create training day
+        var dayResponse = await client.PostAsJsonAsync(
+            $"/api/admin/workout-plans/{plan.Id}/days",
+            new CreateWorkoutPlanDayRequest
+            {
+                DayNumber = 1,
+                Name = "Full Body Workout",
+                IsRestDay = false,
+                EstimatedDurationMinutes = 60
+            });
+
+        Assert.Equal(HttpStatusCode.Created, dayResponse.StatusCode);
+
+        var day = await dayResponse.Content
+            .ReadFromJsonAsync<WorkoutPlanDayResponse>();
+
+        Assert.NotNull(day);
+
+        // Step 4: Create exercise in Exercise Master
+        var exerciseResponse = await client.PostAsJsonAsync(
+            "/api/exercises",
+            new
+            {
+                Code = $"REACTIVATE-{Guid.NewGuid():N}",
+                Name = "Reactivation Test Squat",
+                Description = "Exercise for workout plan reactivation testing",
+                MuscleGroup = "Legs",
+                Equipment = "Bodyweight",
+                DifficultyLevel = "Beginner",
+                TrainingLocation = "Gym",
+                Instructions = "Perform controlled squats.",
+                VideoUrl = "",
+                GifUrl = ""
+            });
+
+        Assert.Equal(HttpStatusCode.Created, exerciseResponse.StatusCode);
+
+        using var exerciseJson = JsonDocument.Parse(
+            await exerciseResponse.Content.ReadAsStringAsync());
+
+        var exerciseId = exerciseJson.RootElement
+            .GetProperty("id")
+            .GetGuid();
+
+        // Step 5: Assign exercise to training day
+        var assignmentResponse = await client.PostAsJsonAsync(
+            $"/api/admin/workout-plans/{plan.Id}/days/{day.Id}/exercises",
+            new AddWorkoutPlanExerciseRequest
+            {
+                ExerciseId = exerciseId,
+                ExerciseOrder = 1,
+                Sets = 3,
+                Reps = 12,
+                RestSeconds = 60
+            });
+
+        Assert.Equal(HttpStatusCode.Created, assignmentResponse.StatusCode);
+
+        // Step 6: Submit workout plan for review
+        var submitResponse = await client.PostAsync(
+                   $"/api/admin/workout-plans/{plan.Id}/submit-for-review",
+                   null);
+
+        var submitResponseBody =
+            await submitResponse.Content.ReadAsStringAsync();
+
+        Assert.True(
+            submitResponse.StatusCode == HttpStatusCode.OK,
+            $"Submission failed. Status: {submitResponse.StatusCode}. Response: {submitResponseBody}");
+
+        // Step 7: Approve or reject depending on test scenario
+        if (expectedReviewStatus == "Approved")
+        {
+            var approveResponse = await client.PostAsync(
+                $"/api/admin/workout-plans/{plan.Id}/approve",
+                       null);
+
+            Assert.Equal(HttpStatusCode.OK, approveResponse.StatusCode);
+        }
+        else if (expectedReviewStatus == "Rejected")
+        {
+            var rejectResponse = await client.PostAsJsonAsync(
+                $"/api/admin/workout-plans/{plan.Id}/reject",
+                new RejectWorkoutPlanRequest
+                {
+                    Reason = "Review status preservation test"
+                });
+
+            Assert.Equal(HttpStatusCode.OK, rejectResponse.StatusCode);
+        }
+
+        // Step 8: Verify review status before deactivation
+        var beforeResponse = await client.GetAsync(
+            $"/api/admin/workout-plans/{plan.Id}");
+
+        Assert.Equal(HttpStatusCode.OK, beforeResponse.StatusCode);
+
+        var beforePlan = await beforeResponse.Content
+            .ReadFromJsonAsync<WorkoutPlanDetailResponse>();
+
+        Assert.NotNull(beforePlan);
+        Assert.True(beforePlan.IsActive);
+        Assert.Equal(expectedReviewStatus, beforePlan.ReviewStatus);
+
+        // Step 9: Deactivate workout plan
+        var deactivateResponse = await client.PatchAsync(
+            $"/api/admin/workout-plans/{plan.Id}/deactivate",
+                   null);
+
+        Assert.Equal(HttpStatusCode.OK, deactivateResponse.StatusCode);
+
+        // Step 10: Verify deactivation persisted
+        var inactiveResponse = await client.GetAsync(
+            $"/api/admin/workout-plans/{plan.Id}");
+
+        Assert.Equal(HttpStatusCode.OK, inactiveResponse.StatusCode);
+
+        var inactivePlan = await inactiveResponse.Content
+            .ReadFromJsonAsync<WorkoutPlanDetailResponse>();
+
+        Assert.NotNull(inactivePlan);
+        Assert.False(inactivePlan.IsActive);
+        Assert.Equal(expectedReviewStatus, inactivePlan.ReviewStatus);
+
+        // Step 11: Reactivate workout plan
+        var activateResponse = await client.PatchAsync(
+            $"/api/admin/workout-plans/{plan.Id}/activate",
+                   null);
+
+        Assert.Equal(HttpStatusCode.OK, activateResponse.StatusCode);
+
+        // Step 12: Verify persisted state after reactivation
+        var afterResponse = await client.GetAsync(
+            $"/api/admin/workout-plans/{plan.Id}");
+
+        Assert.Equal(HttpStatusCode.OK, afterResponse.StatusCode);
+
+        var afterPlan = await afterResponse.Content
+            .ReadFromJsonAsync<WorkoutPlanDetailResponse>();
+
+        Assert.NotNull(afterPlan);
+
+        Assert.True(afterPlan.IsActive);
+        Assert.Equal(expectedReviewStatus, afterPlan.ReviewStatus);
+        Assert.Equal(beforePlan.RejectionReason, afterPlan.RejectionReason);
+
+        // Step 13: Verify workout day and exercise were preserved
+        var savedDay = Assert.Single(afterPlan.Days);
+
+        Assert.False(savedDay.IsRestDay);
+        Assert.Single(savedDay.Exercises);
+    }
+    [Fact]
+    public async Task Admin_CanReactivateInReviewWorkoutPlan_WithoutChangingReviewStatus()
+    {
+        await VerifyReactivationPreservesReviewStatusAsync("In Review");
+    }
+
+    [Fact]
+    public async Task Admin_CanReactivateApprovedWorkoutPlan_WithoutChangingReviewStatus()
+    {
+        await VerifyReactivationPreservesReviewStatusAsync("Approved");
+    }
+
+    [Fact]
+    public async Task Admin_CanReactivateRejectedWorkoutPlan_WithoutChangingReviewStatus()
+    {
+        await VerifyReactivationPreservesReviewStatusAsync("Rejected");
+    }
+    [Fact]
+    public async Task Admin_CannotReactivateWorkoutPlanTwice()
+    {
+        using var factory = new FitnessPlatformWebApplicationFactory();
+
+        await TestIdentitySeeder.SeedAsync(factory.Services);
+
+        using var client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions
+            {
+                AllowAutoRedirect = false
+            });
+
+        var loginResponse = await client.PostAsJsonAsync(
+            "/api/auth/login",
+            new
+            {
+                Email = TestIdentitySeeder.AdminEmail,
+                Password = TestIdentitySeeder.TestPassword
+            });
+
+        Assert.Equal(HttpStatusCode.OK, loginResponse.StatusCode);
+
+        var login = await loginResponse.Content
+            .ReadFromJsonAsync<LoginTestResponse>();
+
+        Assert.NotNull(login);
+
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", login.AccessToken);
+
+        var planResponse = await client.PostAsJsonAsync(
+            "/api/admin/workout-plans",
+            new CreateWorkoutPlanRequest
+            {
+                Name = $"Repeated Reactivation Test {Guid.NewGuid():N}",
+                GoalCode = "WEIGHT_LOSS",
+                ExperienceLevel = "Beginner",
+                TrainingLocation = "Gym",
+                DaysPerWeek = 3,
+                DurationWeeks = 12
+            });
+
+        Assert.Equal(HttpStatusCode.Created, planResponse.StatusCode);
+
+        var plan = await planResponse.Content
+            .ReadFromJsonAsync<WorkoutPlanResponse>();
+
+        Assert.NotNull(plan);
+
+        var deactivateResponse = await client.PatchAsync(
+            $"/api/admin/workout-plans/{plan.Id}/deactivate",
+                   null);
+
+        Assert.Equal(HttpStatusCode.OK, deactivateResponse.StatusCode);
+
+        var firstActivation = await client.PatchAsync(
+            $"/api/admin/workout-plans/{plan.Id}/activate",
+                   null);
+
+        Assert.Equal(HttpStatusCode.OK, firstActivation.StatusCode);
+
+        var secondActivation = await client.PatchAsync(
+            $"/api/admin/workout-plans/{plan.Id}/activate",
+                   null);
+
+        Assert.Equal(HttpStatusCode.Conflict, secondActivation.StatusCode);
+
+        var detailsResponse = await client.GetAsync(
+            $"/api/admin/workout-plans/{plan.Id}");
+
+        Assert.Equal(HttpStatusCode.OK, detailsResponse.StatusCode);
+
+        var savedPlan = await detailsResponse.Content
+            .ReadFromJsonAsync<WorkoutPlanDetailResponse>();
+
+        Assert.NotNull(savedPlan);
+        Assert.True(savedPlan.IsActive);
+    }
 }
-
-
-

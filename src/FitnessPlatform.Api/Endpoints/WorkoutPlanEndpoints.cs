@@ -1516,6 +1516,52 @@ public static class WorkoutPlanEndpoints
         })
         .WithName("ReorderWorkoutPlanDays");
 
+        // ACTIVATE WORKOUT PLAN
+        group.MapPatch("/{planId:guid}/activate", async (
+            Guid planId,
+            FitnessPlatformDbContext db,
+            CancellationToken cancellationToken) =>
+        {
+            // Step 1: Find workout plan
+            var plan = await db.WorkoutPlans
+                .FindAsync(new object[] { planId }, cancellationToken);
+
+            if (plan is null)
+            {
+                return Results.NotFound(new
+                {
+                    Error = "Workout plan not found."
+                });
+            }
+
+            // Step 2: Prevent activating an already active plan
+            if (plan.IsActive)
+            {
+                return Results.Conflict(new
+                {
+                    Error = "Workout plan is already active."
+                });
+            }
+
+            // Step 3: Activate workout plan
+            plan.IsActive = true;
+
+            // Step 4: Update modification timestamp
+            plan.UpdatedAtUtc = DateTime.UtcNow;
+
+            // Step 5: Save changes
+            await db.SaveChangesAsync(cancellationToken);
+
+            // Step 6: Return activation result
+            return Results.Ok(new
+            {
+                plan.Id,
+                plan.IsActive,
+                plan.UpdatedAtUtc
+            });
+        })
+        .WithName("ActivateWorkoutPlan");
+
         return app;
     }
 }
