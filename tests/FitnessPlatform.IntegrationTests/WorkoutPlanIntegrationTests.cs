@@ -1,4 +1,4 @@
-﻿
+
 using FitnessPlatform.Contracts.Exercises;
 using FitnessPlatform.Contracts.WorkoutPlans;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -49,6 +49,8 @@ public class WorkoutPlanIntegrationTests
             new AuthenticationHeaderValue(
                 "Bearer",
                 login.AccessToken);
+
+
 
         // 2. Create workout plan
         var planRequest = new CreateWorkoutPlanRequest
@@ -122,7 +124,10 @@ public class WorkoutPlanIntegrationTests
             .ReadFromJsonAsync<ExerciseResponse>();
 
         Assert.NotNull(exercise);
-        Assert.NotEqual(Guid.Empty, exercise.Id);
+
+        await ApproveExerciseForWorkoutPlanAsync(
+            client,
+            exercise.Id);
 
         // 5. Assign exercise to workout day
         var assignmentRequest = new AddWorkoutPlanExerciseRequest
@@ -394,6 +399,8 @@ public class WorkoutPlanIntegrationTests
 
         Assert.NotNull(exercise);
 
+        await ApproveExerciseForWorkoutPlanAsync(client, exercise.Id);
+
         // Step 5: Assign exercise with order 1
         var assignment = new AddWorkoutPlanExerciseRequest
         {
@@ -524,6 +531,8 @@ public class WorkoutPlanIntegrationTests
             .ReadFromJsonAsync<ExerciseResponse>();
 
         Assert.NotNull(exercise);
+
+        await ApproveExerciseForWorkoutPlanAsync(client, exercise.Id);
 
         // Step 5: Attempt to assign exercise to rest day
         var assignmentResponse = await client.PostAsJsonAsync(
@@ -1183,6 +1192,8 @@ public class WorkoutPlanIntegrationTests
             .GetProperty("id")
             .GetGuid();
 
+        await ApproveExerciseForWorkoutPlanAsync(client, exerciseId);
+
         // Step 5: Assign exercise to training day
         var assignmentResponse = await client.PostAsJsonAsync(
             $"/api/admin/workout-plans/{plan.Id}/days/{day.Id}/exercises",
@@ -1312,6 +1323,8 @@ public class WorkoutPlanIntegrationTests
         var exerciseId = exerciseJson.RootElement
             .GetProperty("id")
             .GetGuid();
+
+        await ApproveExerciseForWorkoutPlanAsync(client, exerciseId);
 
         // Step 5: Assign exercise to training day
         var assignmentResponse = await client.PostAsJsonAsync(
@@ -1462,6 +1475,8 @@ public class WorkoutPlanIntegrationTests
             .GetProperty("id")
             .GetGuid();
 
+        await ApproveExerciseForWorkoutPlanAsync(client, exerciseId);
+
         // Step 5: Assign exercise to training day
         var assignmentResponse = await client.PostAsJsonAsync(
             $"/api/admin/workout-plans/{plan.Id}/days/{day.Id}/exercises",
@@ -1608,6 +1623,8 @@ public class WorkoutPlanIntegrationTests
         var exerciseId = exerciseJson.RootElement
             .GetProperty("id")
             .GetGuid();
+
+        await ApproveExerciseForWorkoutPlanAsync(client, exerciseId);
 
         // Step 5: Assign exercise to training day
         var assignmentResponse = await client.PostAsJsonAsync(
@@ -1930,6 +1947,8 @@ public class WorkoutPlanIntegrationTests
             .GetProperty("id")
             .GetGuid();
 
+        await ApproveExerciseForWorkoutPlanAsync(client, exerciseId);
+
         // Step 5: Assign exercise
         var assignmentResponse = await client.PostAsJsonAsync(
             $"/api/admin/workout-plans/{plan.Id}/days/{day.Id}/exercises",
@@ -2073,6 +2092,8 @@ public class WorkoutPlanIntegrationTests
         var exerciseId = exerciseJson.RootElement
             .GetProperty("id")
             .GetGuid();
+
+        await ApproveExerciseForWorkoutPlanAsync(client, exerciseId);
 
         // Step 5: Assign exercise
         var assignmentResponse = await client.PostAsJsonAsync(
@@ -2242,6 +2263,8 @@ public class WorkoutPlanIntegrationTests
         var exerciseId = exerciseJson.RootElement
             .GetProperty("id")
             .GetGuid();
+
+        await ApproveExerciseForWorkoutPlanAsync(client, exerciseId);
 
         // Step 5: Assign exercise
         var assignmentResponse = await client.PostAsJsonAsync(
@@ -2431,6 +2454,8 @@ public class WorkoutPlanIntegrationTests
         var exerciseId = exerciseJson.RootElement
             .GetProperty("id")
             .GetGuid();
+
+        await ApproveExerciseForWorkoutPlanAsync(client, exerciseId);
 
         // Step 5: Assign exercise
         var assignmentResponse = await client.PostAsJsonAsync(
@@ -2630,6 +2655,8 @@ public class WorkoutPlanIntegrationTests
         var exerciseId = exerciseJson.RootElement
             .GetProperty("id")
             .GetGuid();
+
+        await ApproveExerciseForWorkoutPlanAsync(client, exerciseId);
 
         // Step 5: Assign exercise
         var assignmentResponse = await client.PostAsJsonAsync(
@@ -2834,6 +2861,8 @@ public class WorkoutPlanIntegrationTests
             .GetProperty("id")
             .GetGuid();
 
+        await ApproveExerciseForWorkoutPlanAsync(client, exerciseId);
+
         // Step 5: Assign exercise
         var assignmentResponse = await client.PostAsJsonAsync(
             $"/api/admin/workout-plans/{plan.Id}/days/{day.Id}/exercises",
@@ -2982,6 +3011,8 @@ public class WorkoutPlanIntegrationTests
         var exerciseId = exerciseJson.RootElement
             .GetProperty("id")
             .GetGuid();
+
+        await ApproveExerciseForWorkoutPlanAsync(client, exerciseId);
 
         // Step 5: Assign exercise
         var assignmentResponse = await client.PostAsJsonAsync(
@@ -3185,6 +3216,8 @@ public class WorkoutPlanIntegrationTests
             .GetProperty("id")
             .GetGuid();
 
+        await ApproveExerciseForWorkoutPlanAsync(client, exerciseId);
+
         // Step 5: Assign exercise
         var assignmentResponse = await client.PostAsJsonAsync(
             $"/api/admin/workout-plans/{plan.Id}/days/{day.Id}/exercises",
@@ -3375,6 +3408,8 @@ public class WorkoutPlanIntegrationTests
         var exerciseId = exerciseJson.RootElement
             .GetProperty("id")
             .GetGuid();
+
+        await ApproveExerciseForWorkoutPlanAsync(client, exerciseId);
 
         // Step 5: Assign exercise
         var assignmentResponse = await client.PostAsJsonAsync(
@@ -3643,6 +3678,8 @@ public class WorkoutPlanIntegrationTests
             .GetProperty("id")
             .GetGuid();
 
+        await ApproveExerciseForWorkoutPlanAsync(client, exerciseId);
+
         // Step 5: Assign exercise
         var assignmentResponse = await client.PostAsJsonAsync(
             $"/api/admin/workout-plans/{plan.Id}/days/{day.Id}/exercises",
@@ -3794,6 +3831,8 @@ public class WorkoutPlanIntegrationTests
         var exerciseId = exerciseJson.RootElement
             .GetProperty("id")
             .GetGuid();
+
+        await ApproveExerciseForWorkoutPlanAsync(client, exerciseId);
 
         // Step 5: Assign exercise
         var assignmentResponse = await client.PostAsJsonAsync(
@@ -4029,6 +4068,8 @@ public class WorkoutPlanIntegrationTests
             .GetProperty("id")
             .GetGuid();
 
+        await ApproveExerciseForWorkoutPlanAsync(client, exerciseId);
+
         // Step 5: Assign exercise
         var assignmentResponse = await client.PostAsJsonAsync(
             $"/api/admin/workout-plans/{plan.Id}/days/{day.Id}/exercises",
@@ -4217,6 +4258,8 @@ public class WorkoutPlanIntegrationTests
             .GetProperty("id")
             .GetGuid();
 
+        await ApproveExerciseForWorkoutPlanAsync(client, exerciseId);
+
         // Step 5: Assign exercise
         var assignmentResponse = await client.PostAsJsonAsync(
             $"/api/admin/workout-plans/{plan.Id}/days/{day.Id}/exercises",
@@ -4393,6 +4436,8 @@ public class WorkoutPlanIntegrationTests
         var exerciseId = exerciseJson.RootElement
             .GetProperty("id")
             .GetGuid();
+
+        await ApproveExerciseForWorkoutPlanAsync(client, exerciseId);
 
         // Step 5: Assign exercise
         var assignmentResponse = await client.PostAsJsonAsync(
@@ -5415,6 +5460,8 @@ public class WorkoutPlanIntegrationTests
             .GetProperty("id")
             .GetGuid();
 
+        await ApproveExerciseForWorkoutPlanAsync(client, exerciseId);
+
         // Step 5: Assign exercise to workout day
         var assignmentResponse = await client.PostAsJsonAsync(
             $"/api/admin/workout-plans/{plan.Id}/days/{day.Id}/exercises",
@@ -5579,6 +5626,8 @@ public class WorkoutPlanIntegrationTests
         var exerciseId = exerciseJson.RootElement
             .GetProperty("id")
             .GetGuid();
+
+        await ApproveExerciseForWorkoutPlanAsync(client, exerciseId);
 
         // Step 5: Assign exercise to workout day
         var assignmentResponse = await client.PostAsJsonAsync(
@@ -6843,6 +6892,8 @@ public class WorkoutPlanIntegrationTests
             .GetProperty("id")
             .GetGuid();
 
+        await ApproveExerciseForWorkoutPlanAsync(client, exerciseId);
+
         // Step 4.1: Assign exercise to workout day
         var assignmentResponse = await client.PostAsJsonAsync(
             $"/api/admin/workout-plans/{plan.Id}/days/{day.Id}/exercises",
@@ -7012,6 +7063,8 @@ public class WorkoutPlanIntegrationTests
             .ReadFromJsonAsync<ExerciseResponse>();
 
         Assert.NotNull(exercise);
+
+        await ApproveExerciseForWorkoutPlanAsync(client, exercise.Id);
 
         // Step 5: Assign exercise to workout day
         var assignmentResponse = await client.PostAsJsonAsync(
@@ -7187,6 +7240,8 @@ public class WorkoutPlanIntegrationTests
 
         Assert.NotNull(exercise);
 
+        await ApproveExerciseForWorkoutPlanAsync(client, exercise.Id);
+
         // Step 5: Assign exercise to workout day
         var assignmentResponse = await client.PostAsJsonAsync(
             $"/api/admin/workout-plans/{plan.Id}/days/{day.Id}/exercises",
@@ -7347,6 +7402,8 @@ public class WorkoutPlanIntegrationTests
 
         Assert.NotNull(exercise);
 
+        await ApproveExerciseForWorkoutPlanAsync(client, exercise.Id);
+
         // Step 5: Assign exercise to workout day
         var assignmentResponse = await client.PostAsJsonAsync(
             $"/api/admin/workout-plans/{plan.Id}/days/{day.Id}/exercises",
@@ -7505,6 +7562,8 @@ public class WorkoutPlanIntegrationTests
             .ReadFromJsonAsync<ExerciseResponse>();
 
         Assert.NotNull(exercise);
+
+        await ApproveExerciseForWorkoutPlanAsync(client, exercise.Id);
 
         // Step 5: Assign exercise
         var assignmentResponse = await client.PostAsJsonAsync(
@@ -7667,6 +7726,8 @@ public class WorkoutPlanIntegrationTests
 
         Assert.NotNull(exercise);
 
+        await ApproveExerciseForWorkoutPlanAsync(client, exercise.Id);
+
         // Step 5: Assign exercise
         var assignmentResponse = await client.PostAsJsonAsync(
             $"/api/admin/workout-plans/{plan.Id}/days/{day.Id}/exercises",
@@ -7821,6 +7882,8 @@ public class WorkoutPlanIntegrationTests
             .ReadFromJsonAsync<ExerciseResponse>();
 
         Assert.NotNull(exercise);
+
+        await ApproveExerciseForWorkoutPlanAsync(client, exercise.Id);
 
         // Step 5: Assign exercise
         var assignmentResponse = await client.PostAsJsonAsync(
@@ -8007,6 +8070,8 @@ public class WorkoutPlanIntegrationTests
 
         Assert.NotNull(exercise);
 
+        await ApproveExerciseForWorkoutPlanAsync(client, exercise.Id);
+
         // Step 5: Assign exercise
         var assignmentResponse = await client.PostAsJsonAsync(
             $"/api/admin/workout-plans/{plan.Id}/days/{day.Id}/exercises",
@@ -8180,6 +8245,8 @@ public class WorkoutPlanIntegrationTests
             .ReadFromJsonAsync<ExerciseResponse>();
 
         Assert.NotNull(exercise);
+
+        await ApproveExerciseForWorkoutPlanAsync(client, exercise.Id);
 
         // Step 5: Assign exercise
         var assignmentResponse = await client.PostAsJsonAsync(
@@ -8358,6 +8425,8 @@ public class WorkoutPlanIntegrationTests
 
         Assert.NotNull(exercise);
 
+        await ApproveExerciseForWorkoutPlanAsync(client, exercise.Id);
+
         // Step 5: Assign exercise
         var assignmentResponse = await client.PostAsJsonAsync(
             $"/api/admin/workout-plans/{plan.Id}/days/{day.Id}/exercises",
@@ -8530,6 +8599,8 @@ public class WorkoutPlanIntegrationTests
             .ReadFromJsonAsync<ExerciseResponse>();
 
         Assert.NotNull(exercise);
+
+        await ApproveExerciseForWorkoutPlanAsync(client, exercise.Id);
 
         // Step 5: Assign exercise
         var assignmentResponse = await client.PostAsJsonAsync(
@@ -8726,6 +8797,8 @@ public class WorkoutPlanIntegrationTests
 
         Assert.NotNull(exercise);
 
+        await ApproveExerciseForWorkoutPlanAsync(client, exercise.Id);
+
         // Step 5: Assign exercise
         var assignmentResponse = await client.PostAsJsonAsync(
             $"/api/admin/workout-plans/{plan.Id}/days/{day.Id}/exercises",
@@ -8912,6 +8985,8 @@ public class WorkoutPlanIntegrationTests
             .ReadFromJsonAsync<ExerciseResponse>();
 
         Assert.NotNull(exercise);
+
+        await ApproveExerciseForWorkoutPlanAsync(client, exercise.Id);
 
         // Step 5: Assign first exercise with order 1
         var firstAssignmentResponse = await client.PostAsJsonAsync(
@@ -9107,6 +9182,8 @@ public class WorkoutPlanIntegrationTests
 
         Assert.NotNull(exercise);
 
+        await ApproveExerciseForWorkoutPlanAsync(client, exercise.Id);
+
         // Step 5: Create valid exercise assignment
         var assignmentResponse = await client.PostAsJsonAsync(
             $"/api/admin/workout-plans/{plan.Id}/days/{day.Id}/exercises",
@@ -9260,6 +9337,8 @@ public class WorkoutPlanIntegrationTests
             .ReadFromJsonAsync<ExerciseResponse>();
 
         Assert.NotNull(exercise);
+
+        await ApproveExerciseForWorkoutPlanAsync(client, exercise.Id);
 
         // Step 5: Create valid assignment
         var assignmentResponse = await client.PostAsJsonAsync(
@@ -9427,6 +9506,8 @@ public class WorkoutPlanIntegrationTests
 
         Assert.NotNull(exercise);
 
+        await ApproveExerciseForWorkoutPlanAsync(client, exercise.Id);
+
         // Step 5: Create valid assignment
         var assignmentResponse = await client.PostAsJsonAsync(
             $"/api/admin/workout-plans/{plan.Id}/days/{day.Id}/exercises",
@@ -9584,6 +9665,8 @@ public class WorkoutPlanIntegrationTests
             .ReadFromJsonAsync<ExerciseResponse>();
 
         Assert.NotNull(exercise);
+
+        await ApproveExerciseForWorkoutPlanAsync(client, exercise.Id);
 
         // Step 5: Create valid assignment
         var assignmentResponse = await client.PostAsJsonAsync(
@@ -9830,6 +9913,8 @@ public class WorkoutPlanIntegrationTests
             .ReadFromJsonAsync<ExerciseResponse>();
 
         Assert.NotNull(exercise);
+
+        await ApproveExerciseForWorkoutPlanAsync(client, exercise.Id);
 
         // Step 5: Create valid assignment
         var assignmentResponse = await client.PostAsJsonAsync(
@@ -10160,6 +10245,8 @@ public class WorkoutPlanIntegrationTests
 
         Assert.NotNull(exercise);
 
+        await ApproveExerciseForWorkoutPlanAsync(client, exercise.Id);
+
         // Step 5: Assign exercise to workout day
         var assignmentResponse = await client.PostAsJsonAsync(
             $"/api/admin/workout-plans/{plan.Id}/days/{day.Id}/exercises",
@@ -10368,6 +10455,8 @@ public class WorkoutPlanIntegrationTests
 
         Assert.NotNull(exercise);
 
+        await ApproveExerciseForWorkoutPlanAsync(client, exercise.Id);
+
         // Step 5: Assign exercise to workout day
         var assignmentResponse = await client.PostAsJsonAsync(
             $"/api/admin/workout-plans/{plan.Id}/days/{day.Id}/exercises",
@@ -10500,6 +10589,8 @@ public class WorkoutPlanIntegrationTests
             .ReadFromJsonAsync<ExerciseResponse>();
 
         Assert.NotNull(exercise);
+
+        await ApproveExerciseForWorkoutPlanAsync(client, exercise.Id);
 
         // Assign exercise to the workout day
         var assignmentResponse = await client.PostAsJsonAsync(
@@ -10635,6 +10726,8 @@ public class WorkoutPlanIntegrationTests
             .ReadFromJsonAsync<ExerciseResponse>();
 
         Assert.NotNull(exercise);
+
+        await ApproveExerciseForWorkoutPlanAsync(client, exercise.Id);
 
         // Assign exercise to the workout day
         var assignmentResponse = await client.PostAsJsonAsync(
@@ -10777,6 +10870,8 @@ public class WorkoutPlanIntegrationTests
             .ReadFromJsonAsync<ExerciseResponse>();
 
         Assert.NotNull(exercise);
+
+        await ApproveExerciseForWorkoutPlanAsync(client, exercise.Id);
 
         // Assign exercise to the workout day
         var assignmentResponse = await client.PostAsJsonAsync(
@@ -10925,6 +11020,8 @@ public class WorkoutPlanIntegrationTests
             .ReadFromJsonAsync<ExerciseResponse>();
 
         Assert.NotNull(exercise);
+
+        await ApproveExerciseForWorkoutPlanAsync(client, exercise.Id);
 
         // Assign exercise to the workout day
         var assignmentResponse = await client.PostAsJsonAsync(
@@ -11376,6 +11473,8 @@ public class WorkoutPlanIntegrationTests
 
             Assert.NotNull(exercise);
 
+            await ApproveExerciseForWorkoutPlanAsync(client, exercise.Id);
+
             exerciseIds.Add(exercise.Id);
         }
 
@@ -11589,6 +11688,8 @@ public class WorkoutPlanIntegrationTests
                 .ReadFromJsonAsync<ExerciseResponse>();
 
             Assert.NotNull(exercise);
+
+            await ApproveExerciseForWorkoutPlanAsync(client, exercise.Id);
 
             exerciseIds.Add(exercise.Id);
         }
@@ -11836,6 +11937,8 @@ public class WorkoutPlanIntegrationTests
 
             Assert.NotNull(exercise);
 
+            await ApproveExerciseForWorkoutPlanAsync(client, exercise.Id);
+
             exerciseIds.Add(exercise.Id);
         }
 
@@ -12031,6 +12134,8 @@ public class WorkoutPlanIntegrationTests
                 .ReadFromJsonAsync<ExerciseResponse>();
 
             Assert.NotNull(exercise);
+
+            await ApproveExerciseForWorkoutPlanAsync(client, exercise.Id);
 
             exerciseIds.Add(exercise.Id);
         }
@@ -12241,6 +12346,8 @@ public class WorkoutPlanIntegrationTests
                 .ReadFromJsonAsync<ExerciseResponse>();
 
             Assert.NotNull(exercise);
+
+            await ApproveExerciseForWorkoutPlanAsync(client, exercise.Id);
 
             exerciseIds.Add(exercise.Id);
         }
@@ -12458,6 +12565,8 @@ public class WorkoutPlanIntegrationTests
 
             Assert.NotNull(exercise);
 
+            await ApproveExerciseForWorkoutPlanAsync(client, exercise.Id);
+
             exerciseIds.Add(exercise.Id);
         }
 
@@ -12646,6 +12755,8 @@ public class WorkoutPlanIntegrationTests
                 .ReadFromJsonAsync<ExerciseResponse>();
 
             Assert.NotNull(exercise);
+
+            await ApproveExerciseForWorkoutPlanAsync(client, exercise.Id);
 
             exerciseIds.Add(exercise.Id);
         }
@@ -12837,6 +12948,8 @@ public class WorkoutPlanIntegrationTests
 
             Assert.NotNull(exercise);
 
+            await ApproveExerciseForWorkoutPlanAsync(client, exercise.Id);
+
             exerciseIds.Add(exercise.Id);
         }
 
@@ -13022,6 +13135,8 @@ public class WorkoutPlanIntegrationTests
                 .ReadFromJsonAsync<ExerciseResponse>();
 
             Assert.NotNull(exercise);
+
+            await ApproveExerciseForWorkoutPlanAsync(client, exercise.Id);
 
             exerciseIds.Add(exercise.Id);
         }
@@ -13268,6 +13383,8 @@ public class WorkoutPlanIntegrationTests
                 .ReadFromJsonAsync<ExerciseResponse>();
 
             Assert.NotNull(exercise);
+
+            await ApproveExerciseForWorkoutPlanAsync(client, exercise.Id);
 
             exerciseIds.Add(exercise.Id);
         }
@@ -14323,6 +14440,8 @@ public class WorkoutPlanIntegrationTests
 
             Assert.NotNull(exercise);
 
+            await ApproveExerciseForWorkoutPlanAsync(client, exercise.Id);
+
             // Assign exercise to workout day
             var assignmentResponse = await client.PostAsJsonAsync(
                 $"/api/admin/workout-plans/{plan.Id}/days/{days[i].Id}/exercises",
@@ -14514,6 +14633,8 @@ public class WorkoutPlanIntegrationTests
                 .ReadFromJsonAsync<ExerciseResponse>();
 
             Assert.NotNull(exercise);
+
+            await ApproveExerciseForWorkoutPlanAsync(client, exercise.Id);
 
             // Assign exercise to workout day
             var assignmentResponse = await client.PostAsJsonAsync(
@@ -14864,6 +14985,8 @@ public class WorkoutPlanIntegrationTests
                 .ReadFromJsonAsync<ExerciseResponse>();
 
             Assert.NotNull(exercise);
+
+            await ApproveExerciseForWorkoutPlanAsync(client, exercise.Id);
 
             var assignmentResponse = await client.PostAsJsonAsync(
                 $"/api/admin/workout-plans/{plan.Id}/days/{days[i].Id}/exercises",
@@ -15623,6 +15746,8 @@ public class WorkoutPlanIntegrationTests
 
             Assert.NotNull(exercise);
 
+            await ApproveExerciseForWorkoutPlanAsync(client, exercise.Id);
+
             var assignmentResponse = await client.PostAsJsonAsync(
                 $"/api/admin/workout-plans/{plan.Id}/days/{days[dayIndex].Id}/exercises",
                 new AddWorkoutPlanExerciseRequest
@@ -16256,6 +16381,8 @@ public class WorkoutPlanIntegrationTests
             .GetProperty("id")
             .GetGuid();
 
+        await ApproveExerciseForWorkoutPlanAsync(client, exerciseId);
+
         // Step 5: Assign exercise to training day
         var assignmentResponse = await client.PostAsJsonAsync(
             $"/api/admin/workout-plans/{plan.Id}/days/{day.Id}/exercises",
@@ -16730,6 +16857,8 @@ public class WorkoutPlanIntegrationTests
             .ReadFromJsonAsync<ExerciseResponse>();
 
         Assert.NotNull(exercise);
+
+        await ApproveExerciseForWorkoutPlanAsync(client, exercise.Id);
 
         var assignmentResponse = await client.PostAsJsonAsync(
             $"/api/admin/workout-plans/{original.Id}/days/{day.Id}/exercises",
@@ -17250,6 +17379,8 @@ public class WorkoutPlanIntegrationTests
             .ReadFromJsonAsync<ExerciseResponse>();
 
         Assert.NotNull(exercise);
+
+        await ApproveExerciseForWorkoutPlanAsync(client, exercise.Id);
 
         // 4. Assign exercise to V1 workout day
         var assignmentResponse = await client.PostAsJsonAsync(
@@ -18350,11 +18481,9 @@ public class WorkoutPlanIntegrationTests
         Assert.NotNull(version2Details);
         Assert.Equal(2, version2Details.Days.Count);
 
-        var clonedChestDay = Assert.Single(
-            version2Details.Days.Where(x => x.Name == "Chest Day"));
+        var clonedChestDay = Assert.Single(version2Details.Days, x => x.Name == "Chest Day");
 
-        var clonedBackDay = Assert.Single(
-            version2Details.Days.Where(x => x.Name == "Back Day"));
+        var clonedBackDay = Assert.Single(version2Details.Days, x => x.Name == "Back Day");
 
         Assert.NotEqual(chestDay.Id, clonedChestDay.Id);
         Assert.NotEqual(backDay.Id, clonedBackDay.Id);
@@ -18422,12 +18551,12 @@ public class WorkoutPlanIntegrationTests
 
         Assert.Equal(
             1,
-            Assert.Single(originalDetails.Days.Where(x => x.Id == chestDay.Id))
+            Assert.Single(originalDetails.Days, x => x.Id == chestDay.Id)
                 .DayNumber);
 
         Assert.Equal(
             2,
-            Assert.Single(originalDetails.Days.Where(x => x.Id == backDay.Id))
+            Assert.Single(originalDetails.Days, x => x.Id == backDay.Id)
                 .DayNumber);
 
         // 11. Verify V2 contains updated ordering
@@ -18439,13 +18568,11 @@ public class WorkoutPlanIntegrationTests
 
         Assert.Equal(
             2,
-            Assert.Single(updatedVersion2Details.Days.Where(
-                x => x.Id == clonedChestDay.Id)).DayNumber);
+            Assert.Single(updatedVersion2Details.Days, x => x.Id == clonedChestDay.Id).DayNumber);
 
         Assert.Equal(
             1,
-            Assert.Single(updatedVersion2Details.Days.Where(
-                x => x.Id == clonedBackDay.Id)).DayNumber);
+            Assert.Single(updatedVersion2Details.Days, x => x.Id == clonedBackDay.Id).DayNumber);
     }
     // ============================================================
     // Step 10.29.42.20.13
@@ -18512,6 +18639,8 @@ public class WorkoutPlanIntegrationTests
             .ReadFromJsonAsync<ExerciseResponse>();
 
         Assert.NotNull(exercise);
+
+        await ApproveExerciseForWorkoutPlanAsync(client, exercise.Id);
 
         // 4. Create V2 from V1
         var version2Response = await client.PostAsync(
@@ -18683,6 +18812,8 @@ public class WorkoutPlanIntegrationTests
             .ReadFromJsonAsync<ExerciseResponse>();
 
         Assert.NotNull(exercise);
+
+        await ApproveExerciseForWorkoutPlanAsync(client, exercise.Id);
 
         // 4. Assign Bench Press to V1
         var assignmentResponse = await client.PostAsJsonAsync(
@@ -18874,6 +19005,8 @@ public class WorkoutPlanIntegrationTests
 
         Assert.NotNull(exercise);
 
+        await ApproveExerciseForWorkoutPlanAsync(client, exercise.Id);
+
         // 4. Assign Bench Press to V1
         var assignmentResponse = await client.PostAsJsonAsync(
             $"/api/admin/workout-plans/{version1.Id}/days/{originalDay.Id}/exercises",
@@ -19046,6 +19179,8 @@ public class WorkoutPlanIntegrationTests
 
         Assert.NotNull(benchExercise);
 
+        await ApproveExerciseForWorkoutPlanAsync(client, benchExercise.Id);
+
         // 4. Create Cable Fly in Exercise Master
         var cableResponse = await client.PostAsJsonAsync(
             "/api/exercises",
@@ -19067,6 +19202,8 @@ public class WorkoutPlanIntegrationTests
             .ReadFromJsonAsync<ExerciseResponse>();
 
         Assert.NotNull(cableExercise);
+
+        await ApproveExerciseForWorkoutPlanAsync(client, cableExercise.Id);
 
         // 5. Assign Bench Press as exercise 1
         var benchAssignmentResponse = await client.PostAsJsonAsync(
@@ -19116,11 +19253,9 @@ public class WorkoutPlanIntegrationTests
 
         Assert.Equal(2, originalAssignments.Count);
 
-        var originalBench = Assert.Single(
-            originalAssignments.Where(x => x.ExerciseId == benchExercise.Id));
+        var originalBench = Assert.Single(originalAssignments, x => x.ExerciseId == benchExercise.Id);
 
-        var originalCable = Assert.Single(
-            originalAssignments.Where(x => x.ExerciseId == cableExercise.Id));
+        var originalCable = Assert.Single(originalAssignments, x => x.ExerciseId == cableExercise.Id);
 
         Assert.Equal(1, originalBench.ExerciseOrder);
         Assert.Equal(2, originalCable.ExerciseOrder);
@@ -19149,13 +19284,9 @@ public class WorkoutPlanIntegrationTests
 
         var clonedDay = Assert.Single(version2Details.Days);
 
-        var clonedBench = Assert.Single(
-            clonedDay.Exercises.Where(
-                x => x.ExerciseId == benchExercise.Id));
+        var clonedBench = Assert.Single(clonedDay.Exercises, x => x.ExerciseId == benchExercise.Id);
 
-        var clonedCable = Assert.Single(
-            clonedDay.Exercises.Where(
-                x => x.ExerciseId == cableExercise.Id));
+        var clonedCable = Assert.Single(clonedDay.Exercises, x => x.ExerciseId == cableExercise.Id);
 
         Assert.NotEqual(originalBench.Id, clonedBench.Id);
         Assert.NotEqual(originalCable.Id, clonedCable.Id);
@@ -19228,13 +19359,11 @@ public class WorkoutPlanIntegrationTests
 
         Assert.Equal(
             1,
-            Assert.Single(unchangedExercises.Where(
-                x => x.ExerciseId == benchExercise.Id)).ExerciseOrder);
+            Assert.Single(unchangedExercises, x => x.ExerciseId == benchExercise.Id).ExerciseOrder);
 
         Assert.Equal(
             2,
-            Assert.Single(unchangedExercises.Where(
-                x => x.ExerciseId == cableExercise.Id)).ExerciseOrder);
+            Assert.Single(unchangedExercises, x => x.ExerciseId == cableExercise.Id).ExerciseOrder);
 
         // 15. Verify latest V2 contains updated order
         var updatedVersion2Details = await client
@@ -19248,13 +19377,11 @@ public class WorkoutPlanIntegrationTests
 
         Assert.Equal(
             2,
-            Assert.Single(updatedExercises.Where(
-                x => x.ExerciseId == benchExercise.Id)).ExerciseOrder);
+            Assert.Single(updatedExercises, x => x.ExerciseId == benchExercise.Id).ExerciseOrder);
 
         Assert.Equal(
             1,
-            Assert.Single(updatedExercises.Where(
-                x => x.ExerciseId == cableExercise.Id)).ExerciseOrder);
+            Assert.Single(updatedExercises, x => x.ExerciseId == cableExercise.Id).ExerciseOrder);
     }
     // ============================================================
     // Step 10.29.42.20.21
@@ -19323,6 +19450,8 @@ public class WorkoutPlanIntegrationTests
             .ReadFromJsonAsync<ExerciseResponse>();
 
         Assert.NotNull(exercise);
+
+        await ApproveExerciseForWorkoutPlanAsync(client, exercise.Id);
 
         // 4. Assign exercise to V1
         var assignmentResponse = await client.PostAsJsonAsync(
@@ -19473,6 +19602,8 @@ public class WorkoutPlanIntegrationTests
             .ReadFromJsonAsync<ExerciseResponse>();
 
         Assert.NotNull(exercise);
+
+        await ApproveExerciseForWorkoutPlanAsync(client, exercise.Id);
 
         // 4. Assign exercise to V1
         var assignmentResponse = await client.PostAsJsonAsync(
@@ -19660,6 +19791,8 @@ public class WorkoutPlanIntegrationTests
             .ReadFromJsonAsync<ExerciseResponse>();
 
         Assert.NotNull(exercise);
+
+        await ApproveExerciseForWorkoutPlanAsync(client, exercise.Id);
 
         // 4. Assign exercise to V1
         var assignmentResponse = await client.PostAsJsonAsync(
@@ -20050,6 +20183,39 @@ public class WorkoutPlanIntegrationTests
 
         return plan;
     }
+    private static async Task ApproveExerciseForWorkoutPlanAsync(
+    HttpClient client,
+    Guid exerciseId)
+    {
+        // Step 1: Submit the Draft exercise for review.
+        using var submitResponse = await client.PostAsync(
+            $"/api/exercises/{exerciseId}/submit-review",
+            null);
 
+        var submitResponseBody =
+            await submitResponse.Content.ReadAsStringAsync();
+
+        Assert.True(
+            submitResponse.StatusCode == HttpStatusCode.OK,
+            $"Exercise submission failed. " +
+            $"ExerciseId: {exerciseId}. " +
+            $"Status: {submitResponse.StatusCode}. " +
+            $"Response: {submitResponseBody}");
+
+        // Step 2: Approve the exercise.
+        using var approveResponse = await client.PutAsync(
+            $"/api/exercises/{exerciseId}/approve",
+            null);
+
+        var approveResponseBody =
+            await approveResponse.Content.ReadAsStringAsync();
+
+        Assert.True(
+            approveResponse.StatusCode == HttpStatusCode.OK,
+            $"Exercise approval failed. " +
+            $"ExerciseId: {exerciseId}. " +
+            $"Status: {approveResponse.StatusCode}. " +
+            $"Response: {approveResponseBody}");
+    }
 
 }

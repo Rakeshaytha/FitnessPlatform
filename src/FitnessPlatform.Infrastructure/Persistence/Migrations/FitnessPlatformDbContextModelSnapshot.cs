@@ -213,6 +213,69 @@ namespace FitnessPlatform.Infrastructure.Persistence.Migrations
                     b.ToTable("FitnessGoals");
                 });
 
+            modelBuilder.Entity("FitnessPlatform.Domain.Entities.MemberWorkoutPlanAssignment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("AssignedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("AssignedByUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("DeactivatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateOnly?>("EndDate")
+                        .HasColumnType("date");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<DateOnly>("StartDate")
+                        .HasColumnType("date");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)")
+                        .HasDefaultValue("Active");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("UserProfileId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("WorkoutPlanId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserProfileId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_MemberWorkoutPlanAssignments_ActiveUserProfile")
+                        .HasFilter("[Status] = 'Active'");
+
+                    b.HasIndex("WorkoutPlanId");
+
+                    b.HasIndex("UserProfileId", "AssignedAtUtc");
+
+                    b.ToTable("MemberWorkoutPlanAssignments", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_MemberWorkoutPlanAssignments_DateRange", "[EndDate] IS NULL OR [EndDate] >= [StartDate]");
+
+                            t.HasCheckConstraint("CK_MemberWorkoutPlanAssignments_Status", "[Status] IN ('Active', 'Inactive', 'Completed', 'Cancelled')");
+                        });
+                });
+
             modelBuilder.Entity("FitnessPlatform.Domain.Entities.UserProfile", b =>
                 {
                     b.Property<Guid>("Id")
@@ -696,6 +759,25 @@ namespace FitnessPlatform.Infrastructure.Persistence.Migrations
                         .IsRequired();
 
                     b.Navigation("Exercise");
+                });
+
+            modelBuilder.Entity("FitnessPlatform.Domain.Entities.MemberWorkoutPlanAssignment", b =>
+                {
+                    b.HasOne("FitnessPlatform.Domain.Entities.UserProfile", "UserProfile")
+                        .WithMany()
+                        .HasForeignKey("UserProfileId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("FitnessPlatform.Domain.Entities.WorkoutPlan", "WorkoutPlan")
+                        .WithMany()
+                        .HasForeignKey("WorkoutPlanId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("UserProfile");
+
+                    b.Navigation("WorkoutPlan");
                 });
 
             modelBuilder.Entity("FitnessPlatform.Domain.Entities.UserProfileFitnessGoal", b =>

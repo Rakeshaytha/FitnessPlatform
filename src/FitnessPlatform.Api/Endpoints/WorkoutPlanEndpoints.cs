@@ -1,10 +1,10 @@
+using FitnessPlatform.Api.Filters;
 using Microsoft.EntityFrameworkCore;
 
 using FitnessPlatform.Contracts.WorkoutPlans;
 using FitnessPlatform.Domain.Entities;
 using FitnessPlatform.Infrastructure.Persistence;
 using FitnessPlatform.Application.WorkoutPlans;
-
 namespace FitnessPlatform.Api.Endpoints;
 
 public static class WorkoutPlanEndpoints
@@ -141,6 +141,8 @@ public static class WorkoutPlanEndpoints
                 });
             }
 
+            if (await HasMemberAssignmentsAsync(db, planId, cancellationToken)) { return Results.Conflict(new { Error = "This workout plan has been assigned to members and cannot be modified. Create a new workout plan version to make changes." }); }
+
             if (!WorkoutPlanReviewWorkflowValidator.CanEdit(
                     plan.ReviewStatus,
                     plan.IsActive))
@@ -221,7 +223,7 @@ public static class WorkoutPlanEndpoints
                 UpdatedAtUtc = plan.UpdatedAtUtc
             });
         })
-        .WithName("UpdateWorkoutPlan");
+        .WithName("UpdateWorkoutPlan").AddEndpointFilter<SerializableTransactionFilter>();
         // DEACTIVATE WORKOUT PLAN
         group.MapPatch("/{planId:guid}/deactivate", async (
             Guid planId,
@@ -270,7 +272,7 @@ public static class WorkoutPlanEndpoints
                 plan.UpdatedAtUtc
             });
         })
-        .WithName("DeactivateWorkoutPlan");
+        .WithName("DeactivateWorkoutPlan").AddEndpointFilter<SerializableTransactionFilter>();
 
         // ADD WORKOUT DAY
         group.MapPost("/{planId:guid}/days", async (
@@ -298,6 +300,8 @@ public static class WorkoutPlanEndpoints
                 });
             }
 
+            if (await HasMemberAssignmentsAsync(db, planId, cancellationToken)) { return Results.Conflict(new { Error = "This workout plan has been assigned to members and cannot be modified. Create a new workout plan version to make changes." }); }
+
             if (!WorkoutPlanReviewWorkflowValidator.CanEdit(
                     plan.ReviewStatus,
                     plan.IsActive))
@@ -319,8 +323,8 @@ public static class WorkoutPlanEndpoints
             }
 
             if (string.IsNullOrWhiteSpace(request.Name) ||
-                request.Name.Trim().Length > 200 ||
-                (request.Description?.Length ?? 0) > 2000)
+                request.Name.Trim().Length > 150 ||
+                (request.Description?.Length ?? 0) > 1000)
             {
                 return Results.BadRequest(new
                 {
@@ -385,7 +389,7 @@ public static class WorkoutPlanEndpoints
                         day.EstimatedDurationMinutes
                 });
         })
-        .WithName("AddWorkoutPlanDay");
+        .WithName("AddWorkoutPlanDay").AddEndpointFilter<SerializableTransactionFilter>();
 
         // UPDATE WORKOUT DAY
         group.MapPut("/{planId:guid}/days/{dayId:guid}", async (
@@ -416,6 +420,8 @@ public static class WorkoutPlanEndpoints
             }
 
             // Step 2: Verify workout plan can be edited
+            if (await HasMemberAssignmentsAsync(db, planId, cancellationToken)) { return Results.Conflict(new { Error = "This workout plan has been assigned to members and cannot be modified. Create a new workout plan version to make changes." }); }
+
             if (!WorkoutPlanReviewWorkflowValidator.CanEdit(
                     plan.ReviewStatus,
                     plan.IsActive))
@@ -449,8 +455,8 @@ public static class WorkoutPlanEndpoints
 
             // Step 5: Validate name and description
             if (string.IsNullOrWhiteSpace(request.Name) ||
-                request.Name.Trim().Length > 200 ||
-                (request.Description?.Length ?? 0) > 2000)
+                request.Name.Trim().Length > 150 ||
+                (request.Description?.Length ?? 0) > 1000)
             {
                 return Results.BadRequest(new
                 {
@@ -511,7 +517,7 @@ public static class WorkoutPlanEndpoints
                     day.EstimatedDurationMinutes
             });
         })
-        .WithName("UpdateWorkoutPlanDay");
+        .WithName("UpdateWorkoutPlanDay").AddEndpointFilter<SerializableTransactionFilter>();
 
         // DELETE WORKOUT DAY
         group.MapDelete("/{planId:guid}/days/{dayId:guid}", async (
@@ -544,6 +550,8 @@ public static class WorkoutPlanEndpoints
             }
 
             // Step 2: Verify workout plan can be edited
+            if (await HasMemberAssignmentsAsync(db, planId, cancellationToken)) { return Results.Conflict(new { Error = "This workout plan has been assigned to members and cannot be modified. Create a new workout plan version to make changes." }); }
+
             if (!WorkoutPlanReviewWorkflowValidator.CanEdit(
                     plan.ReviewStatus,
                     plan.IsActive))
@@ -578,7 +586,7 @@ public static class WorkoutPlanEndpoints
             // Step 6: Return successful deletion
             return Results.NoContent();
         })
-        .WithName("DeleteWorkoutPlanDay");
+        .WithName("DeleteWorkoutPlanDay").AddEndpointFilter<SerializableTransactionFilter>();
 
         // ADD EXERCISE TO WORKOUT DAY
         group.MapPost("/{planId:guid}/days/{dayId:guid}/exercises", async (
@@ -606,6 +614,8 @@ public static class WorkoutPlanEndpoints
                     Error = "Historical workout plan versions cannot be modified."
                 });
             }
+
+            if (await HasMemberAssignmentsAsync(db, planId, cancellationToken)) { return Results.Conflict(new { Error = "This workout plan has been assigned to members and cannot be modified. Create a new workout plan version to make changes." }); }
 
             if (!WorkoutPlanReviewWorkflowValidator.CanEdit(
                     plan.ReviewStatus,
@@ -648,7 +658,7 @@ public static class WorkoutPlanEndpoints
                 (request.DurationSeconds.HasValue &&
                  (request.DurationSeconds.Value < 1 ||
                   request.DurationSeconds.Value > 14400)) ||
-                (request.Notes?.Length ?? 0) > 2000)
+                (request.Notes?.Length ?? 0) > 1000)
             {
                 return Results.BadRequest(new
                 {
@@ -656,17 +666,30 @@ public static class WorkoutPlanEndpoints
                 });
             }
 
-            var exerciseExists =
-                await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.AnyAsync(
-                    db.Exercises,
+            // Verify that the exercise exists in Exercise Master.
+            var exercise = await db.Exercises
+                .AsNoTracking()
+                .FirstOrDefaultAsync(
                     e => e.Id == request.ExerciseId,
                     cancellationToken);
 
-            if (!exerciseExists)
+            if (exercise is null)
             {
                 return Results.NotFound(new
                 {
                     Error = "Exercise not found in Exercise Master."
+                });
+            }
+
+            // Only active and approved exercises can be added
+            // to new workout plan content.
+            if (!exercise.IsActive ||
+                exercise.ReviewStatus != "Approved")
+            {
+                return Results.Conflict(new
+                {
+                    Error = "Only active and approved exercises can be added to workout plans.",
+                    Code = "EXERCISE_NOT_AVAILABLE"
                 });
             }
 
@@ -718,7 +741,7 @@ public static class WorkoutPlanEndpoints
                     Notes = assignment.Notes
                 });
         })
-        .WithName("AddWorkoutPlanExercise");
+        .WithName("AddWorkoutPlanExercise").AddEndpointFilter<SerializableTransactionFilter>();
 
         // UPDATE EXERCISE ASSIGNMENT IN WORKOUT DAY
         group.MapPut("/{planId:guid}/days/{dayId:guid}/exercises/{assignmentId:guid}", async (
@@ -749,6 +772,8 @@ public static class WorkoutPlanEndpoints
                 });
             }
             // Step 2: Verify workout plan is editable
+            if (await HasMemberAssignmentsAsync(db, planId, cancellationToken)) { return Results.Conflict(new { Error = "This workout plan has been assigned to members and cannot be modified. Create a new workout plan version to make changes." }); }
+
             if (!WorkoutPlanReviewWorkflowValidator.CanEdit(
                     plan.ReviewStatus,
                     plan.IsActive))
@@ -804,7 +829,7 @@ public static class WorkoutPlanEndpoints
                 (request.DurationSeconds.HasValue &&
                     (request.DurationSeconds.Value < 1 ||
                      request.DurationSeconds.Value > 14400)) ||
-                (request.Notes?.Length ?? 0) > 2000)
+                (request.Notes?.Length ?? 0) > 1000)
             {
                 return Results.BadRequest(new
                 {
@@ -812,19 +837,34 @@ public static class WorkoutPlanEndpoints
                 });
             }
 
-            // Step 7: Verify exercise exists in Exercise Master
-            var exerciseExists =
-                await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.AnyAsync(
-                    db.Exercises,
-                    e => e.Id == request.ExerciseId,
-                    cancellationToken);
-
-            if (!exerciseExists)
+            // Step 7: Validate replacement exercise availability.
+            // Existing exercise references can be retained even
+            // when the exercise has subsequently been retired.
+            if (assignment.ExerciseId != request.ExerciseId)
             {
-                return Results.NotFound(new
+                var replacementExercise = await db.Exercises
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(
+                        e => e.Id == request.ExerciseId,
+                        cancellationToken);
+
+                if (replacementExercise is null)
                 {
-                    Error = "Exercise not found in Exercise Master."
-                });
+                    return Results.NotFound(new
+                    {
+                        Error = "Exercise not found in Exercise Master."
+                    });
+                }
+
+                if (!replacementExercise.IsActive ||
+                    replacementExercise.ReviewStatus != "Approved")
+                {
+                    return Results.Conflict(new
+                    {
+                        Error = "Only active and approved exercises can be added to workout plans.",
+                        Code = "EXERCISE_NOT_AVAILABLE"
+                    });
+                }
             }
 
             // Step 8: Check duplicate exercise order
@@ -874,7 +914,7 @@ public static class WorkoutPlanEndpoints
                 Notes = assignment.Notes
             });
         })
-        .WithName("UpdateWorkoutPlanExercise");
+        .WithName("UpdateWorkoutPlanExercise").AddEndpointFilter<SerializableTransactionFilter>();
         // DELETE EXERCISE ASSIGNMENT FROM WORKOUT DAY
         group.MapDelete("/{planId:guid}/days/{dayId:guid}/exercises/{assignmentId:guid}", async (
             Guid planId,
@@ -903,6 +943,8 @@ public static class WorkoutPlanEndpoints
                 });
             }
             // Step 2: Verify workout plan is editable
+            if (await HasMemberAssignmentsAsync(db, planId, cancellationToken)) { return Results.Conflict(new { Error = "This workout plan has been assigned to members and cannot be modified. Create a new workout plan version to make changes." }); }
+
             if (!WorkoutPlanReviewWorkflowValidator.CanEdit(
                     plan.ReviewStatus,
                     plan.IsActive))
@@ -944,7 +986,7 @@ public static class WorkoutPlanEndpoints
             // Step 7: Return success without response body
             return Results.NoContent();
         })
-        .WithName("DeleteWorkoutPlanExercise");
+        .WithName("DeleteWorkoutPlanExercise").AddEndpointFilter<SerializableTransactionFilter>();
 
         // REORDER EXERCISES WITHIN A WORKOUT DAY
         group.MapPut("/{planId:guid}/days/{dayId:guid}/exercises/reorder", async (
@@ -974,6 +1016,8 @@ public static class WorkoutPlanEndpoints
                 });
             }
             // Step 2: Verify workout plan is editable
+            if (await HasMemberAssignmentsAsync(db, planId, cancellationToken)) { return Results.Conflict(new { Error = "This workout plan has been assigned to members and cannot be modified. Create a new workout plan version to make changes." }); }
+
             if (!WorkoutPlanReviewWorkflowValidator.CanEdit(
                     plan.ReviewStatus,
                     plan.IsActive))
@@ -1080,8 +1124,7 @@ public static class WorkoutPlanEndpoints
             }
 
             // Step 10: Start transaction
-            await using var transaction =
-                await db.Database.BeginTransactionAsync(cancellationToken);
+            // Transaction managed by SerializableTransactionFilter.
 
             // Step 11: Move assignments to temporary unused positions
             // Negative positions avoid collisions with existing positive positions.
@@ -1109,7 +1152,7 @@ public static class WorkoutPlanEndpoints
             await db.SaveChangesAsync(cancellationToken);
 
             // Step 14: Commit transaction
-            await transaction.CommitAsync(cancellationToken);
+            // Transaction committed by SerializableTransactionFilter.
 
             // Step 15: Return reordered assignments
             var response = assignments
@@ -1130,7 +1173,7 @@ public static class WorkoutPlanEndpoints
 
             return Results.Ok(response);
         })
-        .WithName("ReorderWorkoutPlanExercises");
+        .WithName("ReorderWorkoutPlanExercises").AddEndpointFilter<SerializableTransactionFilter>();
 
 
         // GET WORKOUT PLAN DETAILS WITH DAYS AND EXERCISES
@@ -1326,7 +1369,7 @@ public static class WorkoutPlanEndpoints
                 Message = "Workout plan submitted for review successfully."
             });
         })
-        .WithName("SubmitWorkoutPlanForReview");
+        .WithName("SubmitWorkoutPlanForReview").AddEndpointFilter<SerializableTransactionFilter>();
 
         // APPROVE WORKOUT PLAN
         group.MapPost("/{planId:guid}/approve", async (
@@ -1392,7 +1435,7 @@ public static class WorkoutPlanEndpoints
                 Message = "Workout plan approved successfully."
             });
         })
-        .WithName("ApproveWorkoutPlan");
+        .WithName("ApproveWorkoutPlan").AddEndpointFilter<SerializableTransactionFilter>();
 
         // REJECT WORKOUT PLAN
         group.MapPost("/{planId:guid}/reject", async (
@@ -1462,7 +1505,7 @@ public static class WorkoutPlanEndpoints
                 Message = "Workout plan rejected successfully."
             });
         })
-        .WithName("RejectWorkoutPlan");
+        .WithName("RejectWorkoutPlan").AddEndpointFilter<SerializableTransactionFilter>();
 
         // REORDER WORKOUT DAYS WITHIN A WORKOUT PLAN
         group.MapPut("/{planId:guid}/days/reorder", async (
@@ -1492,6 +1535,8 @@ public static class WorkoutPlanEndpoints
                 });
             }
             // Step 2: Verify workout plan is editable
+            if (await HasMemberAssignmentsAsync(db, planId, cancellationToken)) { return Results.Conflict(new { Error = "This workout plan has been assigned to members and cannot be modified. Create a new workout plan version to make changes." }); }
+
             if (!WorkoutPlanReviewWorkflowValidator.CanEdit(
                 plan.ReviewStatus,
                 plan.IsActive))
@@ -1578,8 +1623,7 @@ public static class WorkoutPlanEndpoints
             }
 
             // Step 9: Begin transaction
-            await using var transaction =
-                await db.Database.BeginTransactionAsync(cancellationToken);
+            // Transaction managed by SerializableTransactionFilter.
 
             // Step 10: Assign temporary negative positions
             // This prevents collisions with the unique index
@@ -1606,7 +1650,7 @@ public static class WorkoutPlanEndpoints
             await db.SaveChangesAsync(cancellationToken);
 
             // Step 13: Commit transaction
-            await transaction.CommitAsync(cancellationToken);
+            // Transaction committed by SerializableTransactionFilter.
 
             // Step 14: Return updated workout days
             var response = days
@@ -1625,7 +1669,7 @@ public static class WorkoutPlanEndpoints
 
             return Results.Ok(response);
         })
-        .WithName("ReorderWorkoutPlanDays");
+        .WithName("ReorderWorkoutPlanDays").AddEndpointFilter<SerializableTransactionFilter>();
 
         // ACTIVATE WORKOUT PLAN
         group.MapPatch("/{planId:guid}/activate", async (
@@ -1681,7 +1725,7 @@ public static class WorkoutPlanEndpoints
                 plan.UpdatedAtUtc
             });
         })
-        .WithName("ActivateWorkoutPlan");
+        .WithName("ActivateWorkoutPlan").AddEndpointFilter<SerializableTransactionFilter>();
         // DUPLICATE WORKOUT PLAN
         group.MapPost("/{planId:guid}/duplicate", async (
             Guid planId,
@@ -1742,8 +1786,7 @@ public static class WorkoutPlanEndpoints
                 UpdatedAtUtc = now
             };
 
-            await using var transaction =
-                await db.Database.BeginTransactionAsync(cancellationToken);
+            // Transaction managed by SerializableTransactionFilter.
 
             db.WorkoutPlans.Add(duplicatePlan);
 
@@ -1783,7 +1826,7 @@ public static class WorkoutPlanEndpoints
             }
 
             await db.SaveChangesAsync(cancellationToken);
-            await transaction.CommitAsync(cancellationToken);
+            // Transaction committed by SerializableTransactionFilter.
 
             return Results.Created(
                 $"/api/admin/workout-plans/{duplicatePlan.Id}",
@@ -1804,7 +1847,7 @@ public static class WorkoutPlanEndpoints
                     UpdatedAtUtc = duplicatePlan.UpdatedAtUtc
                 });
         })
-        .WithName("DuplicateWorkoutPlan");
+        .WithName("DuplicateWorkoutPlan").AddEndpointFilter<SerializableTransactionFilter>();
 
         // CREATE NEW WORKOUT PLAN VERSION
         group.MapPost("/{planId:guid}/versions", async (
@@ -1814,10 +1857,7 @@ public static class WorkoutPlanEndpoints
         {
             // Serializable isolation protects version numbering
             // when multiple requests execute concurrently.
-            await using var transaction =
-                await db.Database.BeginTransactionAsync(
-                    System.Data.IsolationLevel.Serializable,
-                    cancellationToken);
+            // Transaction managed by SerializableTransactionFilter.
 
             var sourcePlan = await db.WorkoutPlans
                 .FirstOrDefaultAsync(
@@ -1946,7 +1986,7 @@ public static class WorkoutPlanEndpoints
 
             await db.SaveChangesAsync(cancellationToken);
 
-            await transaction.CommitAsync(cancellationToken);
+            // Transaction committed by SerializableTransactionFilter.
 
             return Results.Created(
                 $"/api/admin/workout-plans/{newPlan.Id}",
@@ -1965,7 +2005,7 @@ public static class WorkoutPlanEndpoints
                     newPlan.UpdatedAtUtc
                 });
         })
-        .WithName("CreateWorkoutPlanVersion");
+        .WithName("CreateWorkoutPlanVersion").AddEndpointFilter<SerializableTransactionFilter>();
 
         // GET WORKOUT PLAN VERSION HISTORY
         group.MapGet("/{planId:guid}/versions", async (
@@ -2138,10 +2178,20 @@ public static class WorkoutPlanEndpoints
                 Days = responseDays
             });
         })
-        .WithName("GetWorkoutPlanSpecificVersion");
-
+               .WithName("GetWorkoutPlanSpecificVersion");
 
         return app;
     }
-}
 
+    private static async Task<bool> HasMemberAssignmentsAsync(
+        FitnessPlatformDbContext db,
+        Guid workoutPlanId,
+        CancellationToken cancellationToken)
+    {
+        return await db.MemberWorkoutPlanAssignments
+            .AsNoTracking()
+            .AnyAsync(
+                x => x.WorkoutPlanId == workoutPlanId,
+                cancellationToken);
+    }
+}

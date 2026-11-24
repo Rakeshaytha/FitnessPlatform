@@ -4,6 +4,8 @@ using FitnessPlatform.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
 using FitnessPlatform.Application.Exercises;
+using FitnessPlatform.Api.Filters;
+
 namespace FitnessPlatform.Api.Endpoints;
 
 public static class ExerciseEndpoints
@@ -225,7 +227,7 @@ public static class ExerciseEndpoints
                 ReviewStatus = exercise.ReviewStatus
             });
         })
-        .WithName("UpdateExercise");
+        .WithName("UpdateExercise").AddEndpointFilter<SerializableTransactionFilter>();
 
         // GET EXERCISES WITH FILTERING AND PAGINATION
         group.MapGet("/", async (
@@ -407,7 +409,7 @@ public static class ExerciseEndpoints
                 exercise.UpdatedAtUtc
             });
         })
-        .WithName("SubmitExerciseForReview");
+        .WithName("SubmitExerciseForReview").AddEndpointFilter<SerializableTransactionFilter>();
 
         // APPROVE EXERCISE
         group.MapPut("/{id:guid}/approve", async (
@@ -471,7 +473,7 @@ public static class ExerciseEndpoints
                 exercise.UpdatedAtUtc
             });
         })
-        .WithName("ApproveExercise");
+        .WithName("ApproveExercise").AddEndpointFilter<SerializableTransactionFilter>();
 
         // RETIRE EXERCISE
         group.MapPut("/{id:guid}/retire", async (
@@ -529,7 +531,7 @@ public static class ExerciseEndpoints
                 exercise.UpdatedAtUtc
             });
         })
-        .WithName("RetireExercise");
+        .WithName("RetireExercise").AddEndpointFilter<SerializableTransactionFilter>();
 
         // BULK SUBMIT EXERCISES FOR REVIEW
         group.MapPut("/bulk/submit-review", async (
@@ -597,7 +599,7 @@ public static class ExerciseEndpoints
                 ReviewStatus = "In Review"
             });
         })
-        .WithName("BulkSubmitExercisesForReview");
+        .WithName("BulkSubmitExercisesForReview").AddEndpointFilter<SerializableTransactionFilter>();
 
         // BULK APPROVE EXERCISES
         group.MapPut("/bulk/approve", async (
@@ -665,7 +667,7 @@ public static class ExerciseEndpoints
                 ReviewStatus = "Approved"
             });
         })
-        .WithName("BulkApproveExercises");
+        .WithName("BulkApproveExercises").AddEndpointFilter<SerializableTransactionFilter>();
 
         // GET EXERCISE AUDIT HISTORY
         group.MapGet("/{id:guid}/audit-history", async (

@@ -31,6 +31,8 @@ public class FitnessPlatformDbContext : IdentityDbContext<ApplicationUser, Ident
 
     public DbSet<WorkoutPlan> WorkoutPlans => Set<WorkoutPlan>();
 
+    public DbSet<MemberWorkoutPlanAssignment> MemberWorkoutPlanAssignments => Set<MemberWorkoutPlanAssignment>();
+
     public DbSet<WorkoutPlanDay> WorkoutPlanDays => Set<WorkoutPlanDay>();
 
     public DbSet<WorkoutPlanExercise> WorkoutPlanExercises => Set<WorkoutPlanExercise>();
@@ -361,6 +363,88 @@ public class FitnessPlatformDbContext : IdentityDbContext<ApplicationUser, Ident
             }).IsUnique();
 
             entity.HasIndex(x => x.ExerciseId);
+        });
+
+        // Member Workout Plan Assignment Configuration
+        modelBuilder.Entity<MemberWorkoutPlanAssignment>(entity =>
+        {
+            entity.ToTable("MemberWorkoutPlanAssignments");
+
+            entity.HasKey(x => x.Id);
+
+            entity.Property(x => x.UserProfileId)
+                .IsRequired();
+
+            entity.Property(x => x.WorkoutPlanId)
+                .IsRequired();
+
+            entity.Property(x => x.AssignedByUserId)
+                .IsRequired();
+
+            entity.Property(x => x.Status)
+                .IsRequired()
+                .HasMaxLength(30)
+                .HasDefaultValue("Active");
+
+            entity.Property(x => x.StartDate)
+                .HasColumnType("date")
+                .IsRequired();
+
+            entity.Property(x => x.EndDate)
+                .HasColumnType("date");
+
+            entity.Property(x => x.Notes)
+                .HasMaxLength(1000);
+
+            entity.Property(x => x.AssignedAtUtc)
+                .IsRequired();
+
+            entity.Property(x => x.CreatedAtUtc)
+                .IsRequired();
+
+            entity.Property(x => x.UpdatedAtUtc)
+                .IsRequired();
+
+            // Relationship with member profile
+            entity.HasOne(x => x.UserProfile)
+                .WithMany()
+                .HasForeignKey(x => x.UserProfileId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // Relationship with exact workout plan version
+            entity.HasOne(x => x.WorkoutPlan)
+                .WithMany()
+                .HasForeignKey(x => x.WorkoutPlanId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // Only one active assignment per member
+            entity.HasIndex(x => x.UserProfileId)
+                .IsUnique()
+                .HasFilter("[Status] = 'Active'")
+                .HasDatabaseName(
+                    "UX_MemberWorkoutPlanAssignments_ActiveUserProfile");
+
+            // Optimize workout plan assignment searches
+            entity.HasIndex(x => x.WorkoutPlanId);
+
+            // Optimize member assignment history
+            entity.HasIndex(x => new
+            {
+                x.UserProfileId,
+                x.AssignedAtUtc
+            });
+
+            // Database-level validation
+            entity.ToTable(table =>
+            {
+                table.HasCheckConstraint(
+                    "CK_MemberWorkoutPlanAssignments_Status",
+                    "[Status] IN ('Active', 'Inactive', 'Completed', 'Cancelled')");
+
+                table.HasCheckConstraint(
+                    "CK_MemberWorkoutPlanAssignments_DateRange",
+                    "[EndDate] IS NULL OR [EndDate] >= [StartDate]");
+            });
         });
 
     }

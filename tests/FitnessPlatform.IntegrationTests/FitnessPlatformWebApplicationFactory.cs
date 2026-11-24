@@ -6,6 +6,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Data.SqlClient;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 
 namespace FitnessPlatform.IntegrationTests;
 
@@ -14,6 +15,18 @@ public class FitnessPlatformWebApplicationFactory
 {
     private const string TestDatabaseName =
         "FitnessPlatformIntegrationTestsDb";
+
+    private readonly IInterceptor? _interceptor;
+
+    public FitnessPlatformWebApplicationFactory()
+    {
+    }
+
+    public FitnessPlatformWebApplicationFactory(
+        IInterceptor interceptor)
+    {
+        _interceptor = interceptor;
+    }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -68,7 +81,14 @@ public class FitnessPlatformWebApplicationFactory
             }
 
             services.AddDbContext<FitnessPlatformDbContext>(options =>
-    options.UseSqlServer(connectionString));
+            {
+                options.UseSqlServer(connectionString);
+
+                if (_interceptor is not null)
+                {
+                    options.AddInterceptors(_interceptor);
+                }
+            });
 
             using var serviceProvider = services.BuildServiceProvider();
             using var scope = serviceProvider.CreateScope();
