@@ -7,6 +7,8 @@ using FitnessPlatform.Domain.Entities;
 using FitnessPlatform.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using FitnessPlatform.Application.Profiles;
+using Microsoft.Data.SqlClient;
+
 namespace FitnessPlatform.Api.Endpoints;
 
 public static class ProfileEndpoints
@@ -78,7 +80,18 @@ public static class ProfileEndpoints
 
             db.UserProfiles.Add(profile);
 
-            await db.SaveChangesAsync(cancellationToken);
+            try
+            {
+                await db.SaveChangesAsync(cancellationToken);
+            }
+            catch (DbUpdateException exception)
+                when (IsDuplicateUserProfileException(exception))
+            {
+                return Results.Conflict(new
+                {
+                    Error = "A profile already exists for this user."
+                });
+            }
 
             return Results.Created(
                 $"/api/profiles/{profile.Id}",
@@ -193,6 +206,33 @@ public static class ProfileEndpoints
         return app;
     }
 
+    private static bool IsDuplicateUserProfileException(
+        Exception exception)
+    {
+        Exception? currentException = exception;
+
+        while (currentException is not null)
+        {
+            if (currentException is SqlException sqlException)
+            {
+                foreach (SqlError error in sqlException.Errors)
+                {
+                    if ((error.Number == 2601 ||
+                         error.Number == 2627) &&
+                        error.Message.Contains(
+                            "UX_UserProfiles_UserId",
+                            StringComparison.OrdinalIgnoreCase))
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            currentException = currentException.InnerException;
+        }
+
+        return false;
+    }
     private static Guid? GetAuthenticatedUserId(
         HttpContext httpContext)
     {

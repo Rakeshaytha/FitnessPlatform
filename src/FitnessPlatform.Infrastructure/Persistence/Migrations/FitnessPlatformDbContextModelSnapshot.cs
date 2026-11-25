@@ -319,6 +319,10 @@ namespace FitnessPlatform.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("UserId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_UserProfiles_UserId");
+
                     b.ToTable("UserProfiles");
                 });
 

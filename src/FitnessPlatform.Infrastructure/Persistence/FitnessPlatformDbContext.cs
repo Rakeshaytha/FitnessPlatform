@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Text;
 using FitnessPlatform.Domain.Entities;
@@ -7,6 +7,7 @@ using FitnessPlatform.Infrastructure.Identity;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using FitnessPlatform.Domain.Constants;
+
 namespace FitnessPlatform.Infrastructure.Persistence;
 
 public class FitnessPlatformDbContext : IdentityDbContext<ApplicationUser, IdentityRole<Guid>, Guid>
@@ -53,6 +54,10 @@ public class FitnessPlatformDbContext : IdentityDbContext<ApplicationUser, Ident
         modelBuilder.Entity<UserProfile>(entity =>
         {
             entity.HasKey(x => x.Id);
+
+            entity.HasIndex(x => x.UserId)
+                .IsUnique()
+                .HasDatabaseName("UX_UserProfiles_UserId");
 
             entity.Property(x => x.FirstName)
                 .HasMaxLength(100)
