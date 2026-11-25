@@ -1,4 +1,4 @@
-﻿using System.Net;
+using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using Xunit;
@@ -5124,39 +5124,6 @@ public sealed class MemberWorkoutPlanAssignmentIntegrationTests
             current.UpdatedAtUtc);
     }
 
-    private static async Task ApproveExerciseForWorkoutPlanAsync(
-    HttpClient client,
-    Guid exerciseId)
-    {
-        // Step 1: Submit the Draft exercise for review.
-        using var submitResponse = await client.PostAsync(
-            $"/api/exercises/{exerciseId}/submit-review",
-            null);
 
-        var submitResponseBody =
-            await submitResponse.Content.ReadAsStringAsync();
-
-        Assert.True(
-            submitResponse.StatusCode == HttpStatusCode.OK,
-            $"Exercise submission failed. " +
-            $"ExerciseId: {exerciseId}. " +
-            $"Status: {submitResponse.StatusCode}. " +
-            $"Response: {submitResponseBody}");
-
-        // Step 2: Approve the exercise.
-        using var approveResponse = await client.PutAsync(
-            $"/api/exercises/{exerciseId}/approve",
-            null);
-
-        var approveResponseBody =
-            await approveResponse.Content.ReadAsStringAsync();
-
-        Assert.True(
-            approveResponse.StatusCode == HttpStatusCode.OK,
-            $"Exercise approval failed. " +
-            $"ExerciseId: {exerciseId}. " +
-            $"Status: {approveResponse.StatusCode}. " +
-            $"Response: {approveResponseBody}");
-    }
 
 }

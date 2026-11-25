@@ -1,4 +1,4 @@
-﻿using FitnessPlatform.Contracts.MemberWorkoutPlanAssignments;
+using FitnessPlatform.Contracts.MemberWorkoutPlanAssignments;
 using FitnessPlatform.Domain.Entities;
 using FitnessPlatform.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -871,8 +871,8 @@ public static class MemberWorkoutPlanAssignmentEndpoints
                     IsolationLevel.Serializable,
                     cancellationToken);
 
-           
-        
+
+
             // Step 8: Verify that the member profile exists.
             var profileExists = await db.UserProfiles
                 .AnyAsync(
