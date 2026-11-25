@@ -538,6 +538,343 @@ namespace FitnessPlatform.Infrastructure.Persistence.Migrations
                     b.ToTable("WorkoutPreferences");
                 });
 
+            modelBuilder.Entity("FitnessPlatform.Domain.Entities.WorkoutSession", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime?>("CancelledAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("CompletedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("MemberWorkoutPlanAssignmentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<DateTime?>("PausedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
+                    b.Property<DateTime>("StartedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)")
+                        .HasDefaultValue("InProgress");
+
+                    b.Property<string>("TimeZoneId")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<int?>("TotalDurationSeconds")
+                        .HasColumnType("int");
+
+                    b.Property<int>("TotalPausedSeconds")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("UserProfileId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateOnly>("WorkoutDate")
+                        .HasColumnType("date");
+
+                    b.Property<string>("WorkoutDayName")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)");
+
+                    b.Property<int>("WorkoutDayNumber")
+                        .HasColumnType("int");
+
+                    b.Property<Guid>("WorkoutPlanDayId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("WorkoutPlanId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("WorkoutPlanName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<int>("WorkoutPlanVersionNumber")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("MemberWorkoutPlanAssignmentId");
+
+                    b.HasIndex("UserProfileId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_WorkoutSessions_UnfinishedUserProfile")
+                        .HasFilter("[Status] IN ('InProgress', 'Paused')");
+
+                    b.HasIndex("WorkoutPlanDayId");
+
+                    b.HasIndex("WorkoutPlanId");
+
+                    b.HasIndex("UserProfileId", "WorkoutDate");
+
+                    b.ToTable("WorkoutSessions", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_WorkoutSessions_CancelledAtUtc", "[CancelledAtUtc] IS NULL OR [CancelledAtUtc] >= [StartedAtUtc]");
+
+                            t.HasCheckConstraint("CK_WorkoutSessions_CompletedAtUtc", "[CompletedAtUtc] IS NULL OR [CompletedAtUtc] >= [StartedAtUtc]");
+
+                            t.HasCheckConstraint("CK_WorkoutSessions_DayNumber", "[WorkoutDayNumber] > 0");
+
+                            t.HasCheckConstraint("CK_WorkoutSessions_Lifecycle", "(([Status] = 'InProgress' AND [PausedAtUtc] IS NULL AND [CompletedAtUtc] IS NULL AND [CancelledAtUtc] IS NULL AND [TotalDurationSeconds] IS NULL) OR ([Status] = 'Paused' AND [PausedAtUtc] IS NOT NULL AND [CompletedAtUtc] IS NULL AND [CancelledAtUtc] IS NULL AND [TotalDurationSeconds] IS NULL) OR ([Status] = 'Completed' AND [PausedAtUtc] IS NULL AND [CompletedAtUtc] IS NOT NULL AND [CancelledAtUtc] IS NULL AND [TotalDurationSeconds] IS NOT NULL) OR ([Status] = 'Cancelled' AND [PausedAtUtc] IS NULL AND [CompletedAtUtc] IS NULL AND [CancelledAtUtc] IS NOT NULL AND [TotalDurationSeconds] IS NOT NULL))");
+
+                            t.HasCheckConstraint("CK_WorkoutSessions_PausedAtUtc", "[PausedAtUtc] IS NULL OR [PausedAtUtc] >= [StartedAtUtc]");
+
+                            t.HasCheckConstraint("CK_WorkoutSessions_PlanVersion", "[WorkoutPlanVersionNumber] > 0");
+
+                            t.HasCheckConstraint("CK_WorkoutSessions_Status", "[Status] IN ('InProgress', 'Paused', 'Completed', 'Cancelled')");
+
+                            t.HasCheckConstraint("CK_WorkoutSessions_TotalDurationSeconds", "[TotalDurationSeconds] IS NULL OR [TotalDurationSeconds] >= 0");
+
+                            t.HasCheckConstraint("CK_WorkoutSessions_TotalPausedSeconds", "[TotalPausedSeconds] >= 0");
+                        });
+                });
+
+            modelBuilder.Entity("FitnessPlatform.Domain.Entities.WorkoutSessionExercise", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime?>("CompletedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Equipment")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("ExerciseCode")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<Guid>("ExerciseId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("ExerciseInstructions")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<string>("ExerciseName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<int>("ExerciseOrder")
+                        .HasColumnType("int");
+
+                    b.Property<string>("MuscleGroup")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<int?>("PlannedDurationSeconds")
+                        .HasColumnType("int");
+
+                    b.Property<string>("PlannedNotes")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<int>("PlannedReps")
+                        .HasColumnType("int");
+
+                    b.Property<int>("PlannedRestSeconds")
+                        .HasColumnType("int");
+
+                    b.Property<int>("PlannedSets")
+                        .HasColumnType("int");
+
+                    b.Property<string>("SkipReason")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<DateTime?>("SkippedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("StartedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)")
+                        .HasDefaultValue("Pending");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("WorkoutPlanExerciseId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("WorkoutSessionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ExerciseId");
+
+                    b.HasIndex("WorkoutPlanExerciseId");
+
+                    b.HasIndex("WorkoutSessionId", "ExerciseOrder")
+                        .IsUnique();
+
+                    b.HasIndex("WorkoutSessionId", "WorkoutPlanExerciseId")
+                        .IsUnique();
+
+                    b.ToTable("WorkoutSessionExercises", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_WorkoutSessionExercises_CompletedAtUtc", "[CompletedAtUtc] IS NULL OR ([StartedAtUtc] IS NOT NULL AND [CompletedAtUtc] >= [StartedAtUtc])");
+
+                            t.HasCheckConstraint("CK_WorkoutSessionExercises_ExerciseOrder", "[ExerciseOrder] > 0");
+
+                            t.HasCheckConstraint("CK_WorkoutSessionExercises_Lifecycle", "(([Status] = 'Pending' AND [StartedAtUtc] IS NULL AND [CompletedAtUtc] IS NULL AND [SkippedAtUtc] IS NULL) OR ([Status] = 'InProgress' AND [StartedAtUtc] IS NOT NULL AND [CompletedAtUtc] IS NULL AND [SkippedAtUtc] IS NULL) OR ([Status] = 'Completed' AND [StartedAtUtc] IS NOT NULL AND [CompletedAtUtc] IS NOT NULL AND [SkippedAtUtc] IS NULL) OR ([Status] = 'Skipped' AND [CompletedAtUtc] IS NULL AND [SkippedAtUtc] IS NOT NULL))");
+
+                            t.HasCheckConstraint("CK_WorkoutSessionExercises_PlannedDurationSeconds", "[PlannedDurationSeconds] IS NULL OR [PlannedDurationSeconds] >= 0");
+
+                            t.HasCheckConstraint("CK_WorkoutSessionExercises_PlannedReps", "[PlannedReps] >= 0");
+
+                            t.HasCheckConstraint("CK_WorkoutSessionExercises_PlannedRestSeconds", "[PlannedRestSeconds] >= 0");
+
+                            t.HasCheckConstraint("CK_WorkoutSessionExercises_PlannedSets", "[PlannedSets] > 0");
+
+                            t.HasCheckConstraint("CK_WorkoutSessionExercises_SkippedAtUtc", "[SkippedAtUtc] IS NULL OR [StartedAtUtc] IS NULL OR [SkippedAtUtc] >= [StartedAtUtc]");
+
+                            t.HasCheckConstraint("CK_WorkoutSessionExercises_Status", "[Status] IN ('Pending', 'InProgress', 'Completed', 'Skipped')");
+                        });
+                });
+
+            modelBuilder.Entity("FitnessPlatform.Domain.Entities.WorkoutSessionSet", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<decimal?>("ActualDistanceMeters")
+                        .HasPrecision(12, 2)
+                        .HasColumnType("decimal(12,2)");
+
+                    b.Property<int?>("ActualDurationSeconds")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("ActualReps")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("ActualRestSeconds")
+                        .HasColumnType("int");
+
+                    b.Property<decimal?>("ActualWeightKg")
+                        .HasPrecision(10, 3)
+                        .HasColumnType("decimal(10,3)");
+
+                    b.Property<DateTime?>("CompletedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<decimal?>("Rpe")
+                        .HasPrecision(3, 1)
+                        .HasColumnType("decimal(3,1)");
+
+                    b.Property<int>("SetNumber")
+                        .HasColumnType("int");
+
+                    b.Property<string>("SetType")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)")
+                        .HasDefaultValue("Working");
+
+                    b.Property<DateTime?>("SkippedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)")
+                        .HasDefaultValue("Pending");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("WorkoutSessionExerciseId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("WorkoutSessionExerciseId", "SetNumber")
+                        .IsUnique();
+
+                    b.ToTable("WorkoutSessionSets", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_WorkoutSessionSets_ActualDistanceMeters", "[ActualDistanceMeters] IS NULL OR [ActualDistanceMeters] >= 0");
+
+                            t.HasCheckConstraint("CK_WorkoutSessionSets_ActualDurationSeconds", "[ActualDurationSeconds] IS NULL OR [ActualDurationSeconds] >= 0");
+
+                            t.HasCheckConstraint("CK_WorkoutSessionSets_ActualReps", "[ActualReps] IS NULL OR [ActualReps] >= 0");
+
+                            t.HasCheckConstraint("CK_WorkoutSessionSets_ActualRestSeconds", "[ActualRestSeconds] IS NULL OR [ActualRestSeconds] >= 0");
+
+                            t.HasCheckConstraint("CK_WorkoutSessionSets_ActualWeightKg", "[ActualWeightKg] IS NULL OR [ActualWeightKg] >= 0");
+
+                            t.HasCheckConstraint("CK_WorkoutSessionSets_CompletedPerformance", "[Status] <> 'Completed' OR (COALESCE([ActualReps], 0) > 0 OR COALESCE([ActualDurationSeconds], 0) > 0 OR COALESCE([ActualDistanceMeters], 0) > 0)");
+
+                            t.HasCheckConstraint("CK_WorkoutSessionSets_Lifecycle", "(([Status] = 'Pending' AND [CompletedAtUtc] IS NULL AND [SkippedAtUtc] IS NULL) OR ([Status] = 'Completed' AND [CompletedAtUtc] IS NOT NULL AND [SkippedAtUtc] IS NULL) OR ([Status] = 'Skipped' AND [CompletedAtUtc] IS NULL AND [SkippedAtUtc] IS NOT NULL))");
+
+                            t.HasCheckConstraint("CK_WorkoutSessionSets_Rpe", "[Rpe] IS NULL OR ([Rpe] >= 1 AND [Rpe] <= 10)");
+
+                            t.HasCheckConstraint("CK_WorkoutSessionSets_SetNumber", "[SetNumber] > 0");
+
+                            t.HasCheckConstraint("CK_WorkoutSessionSets_SetType", "[SetType] IN ('Warmup', 'Working', 'Drop', 'Failure', 'Cooldown')");
+
+                            t.HasCheckConstraint("CK_WorkoutSessionSets_Status", "[Status] IN ('Pending', 'Completed', 'Skipped')");
+                        });
+                });
+
             modelBuilder.Entity("FitnessPlatform.Infrastructure.Identity.ApplicationUser", b =>
                 {
                     b.Property<Guid>("Id")
@@ -838,6 +1175,79 @@ namespace FitnessPlatform.Infrastructure.Persistence.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("FitnessPlatform.Domain.Entities.WorkoutSession", b =>
+                {
+                    b.HasOne("FitnessPlatform.Domain.Entities.MemberWorkoutPlanAssignment", "MemberWorkoutPlanAssignment")
+                        .WithMany()
+                        .HasForeignKey("MemberWorkoutPlanAssignmentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("FitnessPlatform.Domain.Entities.UserProfile", "UserProfile")
+                        .WithMany()
+                        .HasForeignKey("UserProfileId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("FitnessPlatform.Domain.Entities.WorkoutPlanDay", "WorkoutPlanDay")
+                        .WithMany()
+                        .HasForeignKey("WorkoutPlanDayId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("FitnessPlatform.Domain.Entities.WorkoutPlan", "WorkoutPlan")
+                        .WithMany()
+                        .HasForeignKey("WorkoutPlanId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("MemberWorkoutPlanAssignment");
+
+                    b.Navigation("UserProfile");
+
+                    b.Navigation("WorkoutPlan");
+
+                    b.Navigation("WorkoutPlanDay");
+                });
+
+            modelBuilder.Entity("FitnessPlatform.Domain.Entities.WorkoutSessionExercise", b =>
+                {
+                    b.HasOne("FitnessPlatform.Domain.Entities.Exercise", "Exercise")
+                        .WithMany()
+                        .HasForeignKey("ExerciseId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("FitnessPlatform.Domain.Entities.WorkoutPlanExercise", "WorkoutPlanExercise")
+                        .WithMany()
+                        .HasForeignKey("WorkoutPlanExerciseId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("FitnessPlatform.Domain.Entities.WorkoutSession", "WorkoutSession")
+                        .WithMany("Exercises")
+                        .HasForeignKey("WorkoutSessionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Exercise");
+
+                    b.Navigation("WorkoutPlanExercise");
+
+                    b.Navigation("WorkoutSession");
+                });
+
+            modelBuilder.Entity("FitnessPlatform.Domain.Entities.WorkoutSessionSet", b =>
+                {
+                    b.HasOne("FitnessPlatform.Domain.Entities.WorkoutSessionExercise", "WorkoutSessionExercise")
+                        .WithMany("Sets")
+                        .HasForeignKey("WorkoutSessionExerciseId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("WorkoutSessionExercise");
+                });
+
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<System.Guid>", b =>
                 {
                     b.HasOne("Microsoft.AspNetCore.Identity.IdentityRole<System.Guid>", null)
@@ -902,6 +1312,16 @@ namespace FitnessPlatform.Infrastructure.Persistence.Migrations
             modelBuilder.Entity("FitnessPlatform.Domain.Entities.WorkoutPlanDay", b =>
                 {
                     b.Navigation("Exercises");
+                });
+
+            modelBuilder.Entity("FitnessPlatform.Domain.Entities.WorkoutSession", b =>
+                {
+                    b.Navigation("Exercises");
+                });
+
+            modelBuilder.Entity("FitnessPlatform.Domain.Entities.WorkoutSessionExercise", b =>
+                {
+                    b.Navigation("Sets");
                 });
 #pragma warning restore 612, 618
         }
