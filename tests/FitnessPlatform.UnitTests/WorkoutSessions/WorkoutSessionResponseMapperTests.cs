@@ -1,4 +1,4 @@
-﻿using FitnessPlatform.Application.WorkoutSessions;
+using FitnessPlatform.Application.WorkoutSessions;
 using FitnessPlatform.Domain.Constants;
 using FitnessPlatform.Domain.Entities;
 
@@ -1083,5 +1083,3 @@ public class WorkoutSessionResponseMapperTests
 
 
 }
-
-

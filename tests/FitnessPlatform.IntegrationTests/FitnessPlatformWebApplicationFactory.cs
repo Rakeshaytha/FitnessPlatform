@@ -1,4 +1,4 @@
-﻿using FitnessPlatform.Infrastructure.Persistence;
+using FitnessPlatform.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
@@ -18,6 +18,7 @@ public class FitnessPlatformWebApplicationFactory
 
     private readonly IInterceptor? _interceptor;
 
+    private readonly TimeProvider? _timeProvider;
     public FitnessPlatformWebApplicationFactory()
     {
     }
@@ -26,6 +27,25 @@ public class FitnessPlatformWebApplicationFactory
         IInterceptor interceptor)
     {
         _interceptor = interceptor;
+    }
+
+    public FitnessPlatformWebApplicationFactory(
+        TimeProvider timeProvider)
+    {
+        ArgumentNullException.ThrowIfNull(timeProvider);
+
+        _timeProvider = timeProvider;
+    }
+
+    public FitnessPlatformWebApplicationFactory(
+        IInterceptor interceptor,
+        TimeProvider timeProvider)
+    {
+        ArgumentNullException.ThrowIfNull(interceptor);
+        ArgumentNullException.ThrowIfNull(timeProvider);
+
+        _interceptor = interceptor;
+        _timeProvider = timeProvider;
     }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -59,6 +79,16 @@ public class FitnessPlatformWebApplicationFactory
 
         builder.ConfigureServices(services =>
         {
+            // Override server time only when explicitly requested
+            // by an integration test.
+            if (_timeProvider is not null)
+            {
+                services.RemoveAll<TimeProvider>();
+
+                services.AddSingleton<TimeProvider>(
+                    _timeProvider);
+            }
+
             services.RemoveAll<DbContextOptions<FitnessPlatformDbContext>>();
             services.RemoveAll<FitnessPlatformDbContext>();
             var connectionString =

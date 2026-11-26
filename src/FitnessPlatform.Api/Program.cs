@@ -12,6 +12,9 @@ var builder = WebApplication.CreateBuilder(args);
 // Register OpenAPI
 builder.Services.AddOpenApi();
 
+// Register centralized server time provider.
+builder.Services.AddSingleton<TimeProvider>(
+    TimeProvider.System);
 
 // Register SQL Server database context
 builder.Services.AddDbContext<FitnessPlatformDbContext>(options =>
@@ -218,6 +221,8 @@ app.MapAuthEndpoints();
 app.MapExerciseLibraryEndpoints();
 app.MapWorkoutPlanEndpoints();
 app.MapMemberWorkoutPlanAssignmentEndpoints();
+// Register member workout execution endpoints.
+app.MapWorkoutSessionEndpoints();
 
 app.Run();
 public partial class Program
