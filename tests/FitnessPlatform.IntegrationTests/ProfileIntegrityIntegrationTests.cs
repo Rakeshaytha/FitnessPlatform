@@ -338,12 +338,12 @@ public class ProfileIntegrityIntegrationTests
     };
 
         var createdResponse = Assert.Single(
-            responses.Where(x =>
-                x.StatusCode == HttpStatusCode.Created));
+            responses,
+            x => x.StatusCode == HttpStatusCode.Created);
 
         var conflictResponse = Assert.Single(
-            responses.Where(x =>
-                x.StatusCode == HttpStatusCode.Conflict));
+            responses,
+            x => x.StatusCode == HttpStatusCode.Conflict);
 
         var created = await AssertCreatedAsync(
             createdResponse,
